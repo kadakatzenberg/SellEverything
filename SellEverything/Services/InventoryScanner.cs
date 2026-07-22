@@ -22,8 +22,6 @@ public sealed unsafe class InventoryScanner(IDataManager dataManager, IPluginLog
         if (manager == null)
             return result;
 
-        var itemSheet = dataManager.GetExcelSheet<Item>();
-
         foreach (var inventoryType in PlayerInventories)
         {
             var container = manager->GetInventoryContainer(inventoryType);
@@ -32,47 +30,78 @@ public sealed unsafe class InventoryScanner(IDataManager dataManager, IPluginLog
 
             for (var slotIndex = 0; slotIndex < container->Size; slotIndex++)
             {
-                var inventoryItem = container->GetInventorySlot(slotIndex);
-                if (inventoryItem == null || inventoryItem->ItemId == 0 || inventoryItem->Quantity <= 0)
-                    continue;
-
-                if (!itemSheet.TryGetRow(inventoryItem->ItemId, out var itemRow))
-                    continue;
-
-                var isHq = inventoryItem->IsHighQuality();
-                var quantity = inventoryItem->Quantity;
-
-                if (IsProtected(configuration, inventoryItem->ItemId, isHq, quantity))
-                    continue;
-
-                if (configuration.SkipCollectables && inventoryItem->IsCollectable())
-                    continue;
-
-                if (configuration.SkipMateriaAttached && inventoryItem->GetMateriaCount() > 0)
-                    continue;
-
-                if (configuration.SkipGear && itemRow.EquipSlotCategory.RowId != 0)
-                    continue;
-
-                var marketable = !itemRow.IsUntradable && itemRow.ItemSearchCategory.RowId != 0;
-                if (!marketable)
-                    continue;
-
-                result.Add(new SellCandidate(
-                    inventoryType,
-                    (uint)slotIndex,
-                    inventoryItem->ItemId,
-                    itemRow.Name.ToString(),
-                    quantity,
-                    isHq,
-                    itemRow.PriceLow,
-                    itemRow.CanBeHq,
-                    marketable));
+                if (TryReadCandidate(configuration, inventoryType, (uint)slotIndex, out var candidate))
+                    result.Add(candidate);
             }
         }
 
         log.Information("Sell Everything scanned {Count} eligible stacks.", result.Count);
         return result;
+    }
+
+    public bool TryValidate(Configuration configuration, SellCandidate expected, out SellCandidate live)
+    {
+        if (!TryReadCandidate(configuration, expected.InventoryType, expected.Slot, out live))
+            return false;
+
+        return live.ItemId == expected.ItemId && live.IsHq == expected.IsHq;
+    }
+
+    private bool TryReadCandidate(
+        Configuration configuration,
+        InventoryType inventoryType,
+        uint slot,
+        out SellCandidate candidate)
+    {
+        candidate = null!;
+
+        var manager = InventoryManager.Instance();
+        if (manager == null)
+            return false;
+
+        var container = manager->GetInventoryContainer(inventoryType);
+        if (container == null || !container->IsLoaded || slot >= (uint)container->Size)
+            return false;
+
+        var inventoryItem = container->GetInventorySlot((int)slot);
+        if (inventoryItem == null || inventoryItem->ItemId == 0 || inventoryItem->Quantity <= 0)
+            return false;
+
+        var itemSheet = dataManager.GetExcelSheet<Item>();
+        if (!itemSheet.TryGetRow(inventoryItem->ItemId, out var itemRow))
+            return false;
+
+        var isHq = inventoryItem->IsHighQuality();
+        var quantity = inventoryItem->Quantity;
+
+        if (IsProtected(configuration, inventoryItem->ItemId, isHq, quantity))
+            return false;
+
+        if (configuration.SkipCollectables && inventoryItem->IsCollectable())
+            return false;
+
+        if (configuration.SkipMateriaAttached && inventoryItem->GetMateriaCount() > 0)
+            return false;
+
+        if (configuration.SkipGear && itemRow.EquipSlotCategory.RowId != 0)
+            return false;
+
+        var marketable = !itemRow.IsUntradable && itemRow.ItemSearchCategory.RowId != 0;
+        if (!marketable)
+            return false;
+
+        candidate = new SellCandidate(
+            inventoryType,
+            slot,
+            inventoryItem->ItemId,
+            itemRow.Name.ToString(),
+            quantity,
+            isHq,
+            itemRow.PriceLow,
+            itemRow.CanBeHq,
+            marketable);
+
+        return true;
     }
 
     private static bool IsProtected(Configuration configuration, uint itemId, bool isHq, int quantity)

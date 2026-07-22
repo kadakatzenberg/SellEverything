@@ -21,7 +21,7 @@ public sealed class MainWindow : Window
         this.automation = automation;
         this.SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(700, 520),
+            MinimumSize = new Vector2(820, 560),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
     }
@@ -43,7 +43,7 @@ public sealed class MainWindow : Window
             this.automation.BuildQueue();
 
         ImGui.SameLine();
-        if (ImGui.Button("Start reviewed queue"))
+        if (ImGui.Button("Start full retainer run"))
             this.automation.Start();
 
         ImGui.SameLine();
@@ -70,35 +70,44 @@ public sealed class MainWindow : Window
         }
 
         if (dryRun)
-            ImGui.TextWrapped("Dry run is ON. The queue can be inspected, but no market requests or sale actions are sent.");
+        {
+            ImGui.TextWrapped("Dry run is ON. Inventory and quality are validated, but no retainer, market, confirmation, or sale actions are sent.");
+        }
         else
-            ImGui.TextWrapped("LIVE MODE. Open a retainer inventory before starting. Sale actions affect your inventory and market listings.");
+        {
+            ImGui.TextWrapped("LIVE MODE. Open the retainer list before starting. The plugin will select retainers, compare prices, confirm listings or retainer sales, and continue through the configured retainers.");
+        }
     }
 
     private void DrawStatus()
     {
         ImGui.Text($"State: {this.automation.State}");
+        if (this.automation.SessionRetainerLimit > 0)
+            ImGui.Text($"Retainer: {this.automation.CurrentRetainerNumber}/{this.automation.SessionRetainerLimit}");
         ImGui.TextWrapped(this.automation.Status);
 
         var completed = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Completed);
         var skipped = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Skipped);
         var failed = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Failed);
-        ImGui.Text($"Queue: {this.automation.Queue.Count} | Completed: {completed} | Skipped: {skipped} | Failed: {failed}");
+        var pending = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Pending);
+        ImGui.Text($"Queue: {this.automation.Queue.Count} | Pending: {pending} | Completed: {completed} | Skipped: {skipped} | Failed: {failed}");
     }
 
     private void DrawQueue()
     {
-        if (!ImGui.BeginTable("SellQueue", 8, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0, 230)))
+        if (!ImGui.BeginTable("SellQueue", 10, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY, new Vector2(0, 250)))
             return;
 
         ImGui.TableSetupColumn("Item");
         ImGui.TableSetupColumn("Quality");
         ImGui.TableSetupColumn("Qty");
-        ImGui.TableSetupColumn("NPC");
-        ImGui.TableSetupColumn("Lowest");
+        ImGui.TableSetupColumn("NQ seen");
+        ImGui.TableSetupColumn("HQ seen");
+        ImGui.TableSetupColumn("Lowest matching");
         ImGui.TableSetupColumn("Action");
         ImGui.TableSetupColumn("List price");
         ImGui.TableSetupColumn("State");
+        ImGui.TableSetupColumn("Note");
         ImGui.TableHeadersRow();
 
         foreach (var entry in this.automation.Queue)
@@ -107,11 +116,13 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn(); ImGui.TextUnformatted(entry.Candidate.ItemName);
             ImGui.TableNextColumn(); ImGui.TextUnformatted(entry.Candidate.QualityLabel);
             ImGui.TableNextColumn(); ImGui.Text(entry.Candidate.Quantity.ToString());
-            ImGui.TableNextColumn(); ImGui.Text(entry.Candidate.NpcSellPrice.ToString("N0"));
+            ImGui.TableNextColumn(); ImGui.Text(entry.NqListingsSeen.ToString());
+            ImGui.TableNextColumn(); ImGui.Text(entry.HqListingsSeen.ToString());
             ImGui.TableNextColumn(); ImGui.Text(entry.LowestMatchingPrice?.ToString("N0") ?? "-");
             ImGui.TableNextColumn(); ImGui.TextUnformatted(entry.Action.ToString());
             ImGui.TableNextColumn(); ImGui.Text(entry.ListingPrice?.ToString("N0") ?? "-");
             ImGui.TableNextColumn(); ImGui.TextUnformatted(entry.State.ToString());
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(entry.Note);
         }
 
         ImGui.EndTable();

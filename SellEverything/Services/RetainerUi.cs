@@ -11,14 +11,11 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
     private const ulong PutUpForSaleCallback = 2;
     private const ulong RetainerVendorCallback = 5;
 
-    public bool IsMarketResultsOpen
-    {
-        get
-        {
-            var addon = gameGui.GetAddonByName<AtkUnitBase>("ItemSearchResult");
-            return addon != null && addon->IsVisible;
-        }
-    }
+    public bool IsRetainerListOpen => IsAddonVisible("RetainerList");
+    public bool IsSelectStringOpen => IsAddonVisible("SelectString");
+    public bool IsSelectYesNoOpen => IsAddonVisible("SelectYesno");
+    public bool IsSelectOkOpen => IsAddonVisible("SelectOk");
+    public bool IsMarketResultsOpen => IsAddonVisible("ItemSearchResult");
 
     public bool IsRetainerSellOpen
     {
@@ -28,6 +25,33 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
             return addon != null && addon->AtkUnitBase.IsVisible;
         }
     }
+
+    public int RetainerCount
+    {
+        get
+        {
+            var agent = AgentRetainerList.Instance();
+            return agent == null ? 0 : agent->RetainerCount;
+        }
+    }
+
+    public bool SelectRetainer(int zeroBasedIndex)
+    {
+        var count = this.RetainerCount;
+        if (zeroBasedIndex < 0 || (count > 0 && zeroBasedIndex >= count))
+            return false;
+
+        return FireIntCallback("RetainerList", zeroBasedIndex, "retainer row");
+    }
+
+    public bool SelectMarketSellingMenu(int zeroBasedIndex)
+        => FireIntCallback("SelectString", zeroBasedIndex, "retainer market menu");
+
+    public bool ConfirmExpectedYesNo()
+        => FireIntCallback("SelectYesno", 0, "Yes");
+
+    public bool DismissExpectedOk()
+        => FireIntCallback("SelectOk", 0, "OK");
 
     public bool OpenPutUpForSale(InventoryType inventoryType, uint slot)
     {
@@ -58,7 +82,6 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
         return ClickButton(addon->ComparePrices, "Compare Prices");
     }
 
-
     public bool CloseMarketResults()
     {
         var addon = gameGui.GetAddonByName<AtkUnitBase>("ItemSearchResult");
@@ -76,16 +99,59 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
             return false;
 
         addon->AskingPrice->SetValue((int)Math.Clamp(price, 1, int.MaxValue));
-        return ClickButton(addon->Confirm, "Confirm");
+        return ClickButton(addon->Confirm, "Confirm listing");
     }
 
     public bool CancelSellWindow()
     {
         var addon = gameGui.GetAddonByName<AddonRetainerSell>("RetainerSell");
-        if (addon == null || addon->Cancel == null)
+        if (addon == null)
+            return true;
+        if (addon->Cancel == null)
             return false;
 
         return ClickButton(addon->Cancel, "Cancel");
+    }
+
+    public bool CloseCurrentRetainer()
+    {
+        var agent = AgentRetainer.Instance();
+        if (agent == null)
+            return false;
+
+        try
+        {
+            agent->Hide();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            log.Error(exception, "Failed to close the current retainer agent.");
+            return false;
+        }
+    }
+
+    private bool IsAddonVisible(string name)
+    {
+        var addon = gameGui.GetAddonByName<AtkUnitBase>(name);
+        return addon != null && addon->IsVisible;
+    }
+
+    private bool FireIntCallback(string addonName, int value, string label)
+    {
+        var addon = gameGui.GetAddonByName<AtkUnitBase>(addonName);
+        if (addon == null || !addon->IsVisible)
+            return false;
+
+        try
+        {
+            return addon->FireCallbackInt(value);
+        }
+        catch (Exception exception)
+        {
+            log.Error(exception, "Failed to select {Label} with callback value {Value}.", label, value);
+            return false;
+        }
     }
 
     private bool ClickButton(AtkComponentButton* button, string label)

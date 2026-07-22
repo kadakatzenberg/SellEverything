@@ -44,7 +44,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
         {
-            HelpMessage = "Open Sell Everything. Subcommands: scan, start, pause, resume, stop, config."
+            HelpMessage = "Open Sell Everything. Open the retainer list first, then use start. Subcommands: scan, start, pause, resume, stop, config."
         });
 
         PluginInterface.UiBuilder.Draw += this.windowSystem.Draw;
@@ -75,7 +75,6 @@ public sealed class Plugin : IDalamudPlugin
     private void OnFrameworkUpdate(IFramework framework)
     {
         this.automation.Update();
-        this.automation.UpdateVendorStep();
     }
 
     private void OnCommand(string command, string arguments)

@@ -11,7 +11,7 @@ public sealed class ConfigWindow : Window
     public ConfigWindow(Plugin plugin) : base("Sell Everything Settings###SellEverythingConfig")
     {
         this.plugin = plugin;
-        this.Size = new Vector2(460, 360);
+        this.Size = new Vector2(500, 520);
         this.SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -20,7 +20,7 @@ public sealed class ConfigWindow : Window
         var config = this.plugin.Configuration;
 
         var floor = (int)config.MarketFloor;
-        if (ImGui.InputInt("Retainer-vendor below", ref floor))
+        if (ImGui.InputInt("Retainer-sell below", ref floor))
         {
             config.MarketFloor = (uint)Math.Max(1, floor);
             config.Save();
@@ -40,10 +40,45 @@ public sealed class ConfigWindow : Window
             config.Save();
         }
 
-        var timeout = config.MarketTimeoutMilliseconds;
-        if (ImGui.InputInt("Market timeout (ms)", ref timeout))
+        var marketTimeout = config.MarketTimeoutMilliseconds;
+        if (ImGui.InputInt("Market timeout (ms)", ref marketTimeout))
         {
-            config.MarketTimeoutMilliseconds = Math.Clamp(timeout, 5000, 60000);
+            config.MarketTimeoutMilliseconds = Math.Clamp(marketTimeout, 5000, 60000);
+            config.Save();
+        }
+
+        var uiTimeout = config.UiTimeoutMilliseconds;
+        if (ImGui.InputInt("UI timeout (ms)", ref uiTimeout))
+        {
+            config.UiTimeoutMilliseconds = Math.Clamp(uiTimeout, 5000, 60000);
+            config.Save();
+        }
+
+        var retainers = config.RetainersPerSession;
+        if (ImGui.InputInt("Retainers per run", ref retainers))
+        {
+            config.RetainersPerSession = Math.Clamp(retainers, 1, 10);
+            config.Save();
+        }
+
+        var marketMenuIndex = config.MarketMenuOptionIndex;
+        if (ImGui.InputInt("Retainer market-menu index", ref marketMenuIndex))
+        {
+            config.MarketMenuOptionIndex = Math.Max(0, marketMenuIndex);
+            config.Save();
+        }
+
+        var automateRetainers = config.AutomateRetainers;
+        if (ImGui.Checkbox("Automate retainer selection", ref automateRetainers))
+        {
+            config.AutomateRetainers = automateRetainers;
+            config.Save();
+        }
+
+        var autoConfirm = config.AutoConfirmExpectedDialogs;
+        if (ImGui.Checkbox("Auto-confirm expected sale dialogs", ref autoConfirm))
+        {
+            config.AutoConfirmExpectedDialogs = autoConfirm;
             config.Save();
         }
 
@@ -69,6 +104,7 @@ public sealed class ConfigWindow : Window
         }
 
         ImGui.Separator();
-        ImGui.TextWrapped("HQ stacks are compared only to HQ listings. NQ stacks are compared only to NQ listings. No matching listings are skipped. The initial build processes the currently opened retainer and pauses when the game UI no longer permits another listing.");
+        ImGui.TextWrapped("Strict quality matching is always enabled. NQ inventory stacks ignore every HQ listing. HQ inventory stacks ignore every NQ listing. Market packets for other items or request IDs are rejected.");
+        ImGui.TextWrapped("Default retainer market-menu index is 2. Change it only if the game menu order differs in your client.");
     }
 }

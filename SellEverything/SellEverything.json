@@ -1,0 +1,13 @@
+{
+  "Author": "Kadamode",
+  "Name": "Sell Everything",
+  "Punchline": "Price and liquidate marketable inventory through your retainer.",
+  "Description": "Builds a reviewed sale queue from your inventory. HQ items use HQ listings, NQ items use NQ listings. Matching market prices below 100 gil are sold through the retainer; other items are listed one gil below the lowest matching offer. Includes whitelist and keep-quantity rules. Use /selleverything.",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "retainer",
+    "marketboard",
+    "inventory",
+    "utility"
+  ]
+}

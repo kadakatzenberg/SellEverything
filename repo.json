@@ -1,0 +1,18 @@
+[
+  {
+    "Author": "Kadamode",
+    "Name": "Sell Everything",
+    "Punchline": "Price and liquidate marketable inventory through your retainer.",
+    "Description": "Builds and executes a reviewed sale queue using matching HQ/NQ in-game market listings.",
+    "Tags": ["retainer", "marketboard", "inventory", "utility"],
+    "InternalName": "SellEverything",
+    "AssemblyVersion": "0.1.0.0",
+    "RepoUrl": "https://github.com/kadakatzenberg/SellEverything",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.1.0.0/SellEverything.zip",
+    "DownloadLinkUpdate": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.1.0.0/SellEverything.zip"
+  }
+]

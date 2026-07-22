@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0.2
+
+- Fixed retainer-list selection being treated as failed when the game callback returned false after dispatch.
+- Retainer selection now faults only when the addon is unavailable or the native call throws.
+
 ## 0.2.0.0
 
 - Added automatic retainer selection starting from the retainer list.

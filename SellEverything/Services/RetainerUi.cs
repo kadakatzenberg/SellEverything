@@ -145,7 +145,11 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
 
         try
         {
-            return addon->FireCallbackInt(value);
+            // FireCallbackInt returns the addon's callback result, not whether the
+            // callback was dispatched. RetainerList commonly returns false even
+            // after accepting the selection, so only an exception is a failure.
+            _ = addon->FireCallbackInt(value);
+            return true;
         }
         catch (Exception exception)
         {

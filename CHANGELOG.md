@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0.4
+
+- Use the RetainerSell addon's native Change event for Compare Prices.
+- Use the native RetainerSell confirmation event after setting the asking price.
+- Retry Compare Prices and listing confirmation until their controls are ready.
+- Force expected-dialog confirmation during full retainer automation.
+- Close the RetainerSell window directly before a retainer-vendor sale.
+
+## 0.2.0.3
+
+- Restores the nullable market-price fix that was accidentally omitted from 0.2.0.2.
+
+# Changelog
+
 ## 0.2.0.2
 
 - Fixed retainer-list selection being treated as failed when the game callback returned false after dispatch.

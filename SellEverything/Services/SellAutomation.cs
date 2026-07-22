@@ -93,6 +93,11 @@ public sealed class SellAutomation
             return;
         }
 
+        // A full retainer run is intentionally hands-off. Expected listing and
+        // retainer-sale confirmation dialogs are always accepted during it.
+        if (this.configuration.AutomateRetainers)
+            this.configuration.AutoConfirmExpectedDialogs = true;
+
         if (this.configuration.AutomateRetainers)
         {
             if (!this.retainerUi.IsRetainerListOpen)
@@ -376,11 +381,24 @@ public sealed class SellAutomation
             throw new InvalidOperationException("The inventory slot changed before Compare Prices.");
 
         this.Current.Candidate = live;
-        this.marketPrices.Begin(live.ItemId, live.IsHq);
         this.Current.State = QueueEntryState.RequestingPrice;
 
+        // RetainerSell can be visible one or two frames before its controls are
+        // enabled. Retry instead of faulting or leaving the button untouched.
+        if (!this.marketPrices.Waiting)
+            this.marketPrices.Begin(live.ItemId, live.IsHq);
+
         if (!this.retainerUi.ClickComparePrices())
-            throw new InvalidOperationException("Could not activate Compare Prices.");
+        {
+            if (this.ElapsedInState > UiTimeout)
+            {
+                this.marketPrices.Cancel();
+                throw new TimeoutException("Compare Prices did not become clickable.");
+            }
+
+            this.Status = $"Waiting for Compare Prices on {live.ItemName} ({live.QualityLabel}).";
+            return;
+        }
 
         this.Transition(
             AutomationState.WaitingForMarketPrice,
@@ -483,8 +501,20 @@ public sealed class SellAutomation
         switch (this.Current.Action)
         {
             case SellAction.MarketList:
-                if (this.Current.ListingPrice is null || !this.retainerUi.SetPriceAndConfirm(this.Current.ListingPrice.Value))
-                    throw new InvalidOperationException("Could not set or confirm the listing price.");
+                if (this.Current.ListingPrice is null)
+                    throw new InvalidOperationException("No listing price was calculated.");
+
+                // As with Compare Prices, the confirm control may not be ready on
+                // the first frame after the results window closes. Keep retrying.
+                if (!this.retainerUi.SetPriceAndConfirm(this.Current.ListingPrice.Value))
+                {
+                    if (this.ElapsedInState > UiTimeout)
+                        throw new TimeoutException("The listing Confirm button did not become clickable.");
+
+                    this.Status = $"Waiting to confirm {this.Current.Candidate.ItemName} at {this.Current.ListingPrice.Value:N0} gil.";
+                    return;
+                }
+
                 this.Transition(AutomationState.WaitingForListingConfirmation, this.Current.Note);
                 return;
 

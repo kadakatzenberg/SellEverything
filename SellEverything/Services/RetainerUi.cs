@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
@@ -10,6 +11,11 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
 {
     private const ulong PutUpForSaleCallback = 2;
     private const ulong RetainerVendorCallback = 5;
+
+    // AddonRetainerSell receives Change events for these controls.
+    private const int ComparePricesEventParam = 4;
+    private const int ConfirmListingEventParam = 21;
+    private const int ChangeEventType = 25;
 
     public bool IsRetainerListOpen => IsAddonVisible("RetainerList");
     public bool IsSelectStringOpen => IsAddonVisible("SelectString");
@@ -76,10 +82,18 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
     public bool ClickComparePrices()
     {
         var addon = gameGui.GetAddonByName<AddonRetainerSell>("RetainerSell");
-        if (addon == null || addon->ComparePrices == null || !addon->ComparePrices->IsEnabled)
+        if (addon == null || !addon->AtkUnitBase.IsVisible || addon->ComparePrices == null || !addon->ComparePrices->IsEnabled)
             return false;
 
-        return ClickButton(addon->ComparePrices, "Compare Prices");
+        var target = addon->ComparePrices->AtkComponentBase.OwnerNode;
+        if (target == null)
+            return false;
+
+        return SendChangeEvent(
+            (AtkEventListener*)addon,
+            ComparePricesEventParam,
+            target,
+            "Compare Prices");
     }
 
     public bool CloseMarketResults()
@@ -95,11 +109,19 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
     public bool SetPriceAndConfirm(uint price)
     {
         var addon = gameGui.GetAddonByName<AddonRetainerSell>("RetainerSell");
-        if (addon == null || addon->AskingPrice == null || addon->Confirm == null)
+        if (addon == null || !addon->AtkUnitBase.IsVisible || addon->AskingPrice == null || addon->Confirm == null)
+            return false;
+
+        if (!addon->Confirm->IsEnabled)
             return false;
 
         addon->AskingPrice->SetValue((int)Math.Clamp(price, 1, int.MaxValue));
-        return ClickButton(addon->Confirm, "Confirm listing");
+
+        return SendChangeEvent(
+            (AtkEventListener*)addon,
+            ConfirmListingEventParam,
+            addon->Confirm,
+            "Confirm listing");
     }
 
     public bool CancelSellWindow()
@@ -107,10 +129,17 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
         var addon = gameGui.GetAddonByName<AddonRetainerSell>("RetainerSell");
         if (addon == null)
             return true;
-        if (addon->Cancel == null)
-            return false;
 
-        return ClickButton(addon->Cancel, "Cancel");
+        try
+        {
+            ((AtkUnitBase*)addon)->Close(true);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            log.Error(exception, "Failed to close the RetainerSell window.");
+            return false;
+        }
     }
 
     public bool CloseCurrentRetainer()
@@ -145,9 +174,8 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
 
         try
         {
-            // FireCallbackInt returns the addon's callback result, not whether the
-            // callback was dispatched. RetainerList commonly returns false even
-            // after accepting the selection, so only an exception is a failure.
+            // The return value is the addon's callback result, not proof that the
+            // callback was dispatched. Only an exception is treated as failure.
             _ = addon->FireCallbackInt(value);
             return true;
         }
@@ -158,20 +186,47 @@ public sealed unsafe class RetainerUi(IGameGui gameGui, IPluginLog log)
         }
     }
 
-    private bool ClickButton(AtkComponentButton* button, string label)
+    private bool SendChangeEvent(AtkEventListener* listener, int eventParam, void* target, string label)
     {
-        if (button == null || !button->IsEnabled)
+        if (listener == null || target == null)
             return false;
+
+        IntPtr eventMemory = IntPtr.Zero;
+        IntPtr eventDataMemory = IntPtr.Zero;
 
         try
         {
-            button->ReceiveEvent(AtkEventType.ButtonClick, 0, null, null);
+            eventMemory = Marshal.AllocHGlobal(0x40);
+            eventDataMemory = Marshal.AllocHGlobal(0x40);
+
+            for (var i = 0; i < 0x40; i++)
+            {
+                Marshal.WriteByte(eventMemory, i, 0);
+                Marshal.WriteByte(eventDataMemory, i, 0);
+            }
+
+            Marshal.WriteIntPtr(eventMemory, 0x08, new IntPtr(target));
+            Marshal.WriteIntPtr(eventMemory, 0x10, new IntPtr(listener));
+
+            listener->ReceiveEvent(
+                (AtkEventType)ChangeEventType,
+                eventParam,
+                (AtkEvent*)eventMemory,
+                (AtkEventData*)eventDataMemory);
+
             return true;
         }
         catch (Exception exception)
         {
-            log.Error(exception, "Failed to click {Label}.", label);
+            log.Error(exception, "Failed to activate {Label} with event parameter {EventParam}.", label, eventParam);
             return false;
+        }
+        finally
+        {
+            if (eventMemory != IntPtr.Zero)
+                Marshal.FreeHGlobal(eventMemory);
+            if (eventDataMemory != IntPtr.Zero)
+                Marshal.FreeHGlobal(eventDataMemory);
         }
     }
 }

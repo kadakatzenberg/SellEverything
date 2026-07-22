@@ -1,21 +1,22 @@
-{
-  "Author": "Kadamode",
-  "Name": "Sell Everything",
-  "Punchline": "Automatically price and liquidate marketable inventory through retainers.",
-  "Description": "Automates retainer selection and processes eligible inventory using strict matching-quality in-game market listings.",
-  "Tags": [
-    "retainer",
-    "marketboard",
-    "inventory",
-    "automation"
-  ],
-  "InternalName": "SellEverything",
-  "AssemblyVersion": "0.2.0.3",
-  "RepoUrl": "https://github.com/kadakatzenberg/SellEverything",
-  "ApplicableVersion": "any",
-  "DalamudApiLevel": 15,
-  "IsHide": false,
-  "IsTestingExclusive": false,
-  "DownloadLinkInstall": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.2.0.3/SellEverything.zip",
-  "DownloadLinkUpdate": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.2.0.3/SellEverything.zip"
-}
+[
+  {
+    "Author": "Kadamode",
+    "Name": "Sell Everything",
+    "Punchline": "Automatically price and sell marketable inventory through retainers.",
+    "Description": "Processes eligible inventory through retainers, compares in-game market prices, separates HQ and NQ pricing, and sells items below the configured market threshold directly through the retainer.",
+    "Tags": [
+      "marketboard",
+      "retainer",
+      "inventory"
+    ],
+    "InternalName": "SellEverything",
+    "AssemblyVersion": "0.2.0.3",
+    "RepoUrl": "https://github.com/kadakatzenberg/SellEverything",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.2.0.3/SellEverything.zip",
+    "DownloadLinkUpdate": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.2.0.3/SellEverything.zip"
+  }
+]

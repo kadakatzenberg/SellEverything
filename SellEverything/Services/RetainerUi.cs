@@ -46,6 +46,7 @@ public sealed unsafe class RetainerUi : IDisposable
     private int comparePricesDispatchAttempts;
     private DateTimeOffset? lastComparePricesDispatchAt;
     private bool expectedYesNoArmed;
+    private ExpectedDialogKind expectedDialogKind;
     private DateTimeOffset? expectedYesNoArmedAt;
     private string expectedYesNoPurpose = string.Empty;
     private bool? currentSellWindowIsHq;
@@ -79,6 +80,7 @@ public sealed unsafe class RetainerUi : IDisposable
     public bool? CurrentSellWindowIsHq => this.currentSellWindowIsHq;
     public string CurrentSellWindowItemName => this.currentSellWindowItemName;
     public string ComparePricesValidationFailure => this.comparePricesValidationFailure;
+    public string CurrentYesNoPrompt => this.GetCurrentYesNoPrompt();
 
     /// <summary>
     /// Raised synchronously when ItemSearchResult reaches PostSetup. Market
@@ -124,20 +126,14 @@ public sealed unsafe class RetainerUi : IDisposable
         if (this.comparePricesArmed && !this.comparePricesDispatched)
             _ = this.TryDispatchComparePrices();
 
-        if (this.expectedYesNoArmed)
+        if (this.expectedYesNoArmed &&
+            this.expectedYesNoArmedAt is DateTimeOffset armedAt &&
+            DateTimeOffset.UtcNow - armedAt > TimeSpan.FromSeconds(8))
         {
-            if (this.expectedYesNoArmedAt is DateTimeOffset armedAt &&
-                DateTimeOffset.UtcNow - armedAt > TimeSpan.FromSeconds(8))
-            {
-                this.log.Warning(
-                    "Expired expected SelectYesno arm for {Purpose} without confirming a dialog.",
-                    this.expectedYesNoPurpose);
-                this.DisarmExpectedYesNo();
-            }
-            else
-            {
-                _ = this.TryConfirmExpectedYesNo(false);
-            }
+            this.log.Warning(
+                "Expired expected SelectYesno arm for {Purpose} without confirming a dialog.",
+                this.expectedYesNoPurpose);
+            this.DisarmExpectedYesNo();
         }
     }
 
@@ -291,11 +287,12 @@ public sealed unsafe class RetainerUi : IDisposable
         }
     }
 
-    public bool SetPriceAndConfirm(uint price)
+    public bool SetPriceAndConfirm(uint price, int quantity)
     {
         var addon = this.GetRetainerSell();
         if (addon == null ||
             !addon->AtkUnitBase.IsVisible ||
+            addon->Quantity == null ||
             addon->AskingPrice == null ||
             addon->Confirm == null)
         {
@@ -304,7 +301,10 @@ public sealed unsafe class RetainerUi : IDisposable
 
         try
         {
-            addon->AskingPrice->SetValue((int)Math.Clamp(price, 1, int.MaxValue));
+            var safeQuantity = Math.Max(1, quantity);
+            var safePrice = (int)Math.Min(Math.Max(1u, price), (uint)int.MaxValue);
+            addon->Quantity->SetValue(safeQuantity);
+            addon->AskingPrice->SetValue(safePrice);
 
             // The target is the Confirm component itself. This is the exact
             // target used by RetainerSell's native event handler.
@@ -316,27 +316,29 @@ public sealed unsafe class RetainerUi : IDisposable
         }
         catch (Exception exception)
         {
-            this.log.Error(exception, "Failed to set the listing price or submit RetainerSell.");
+            this.log.Error(exception, "Failed to set the listing quantity, price, or submit RetainerSell.");
             return false;
         }
     }
 
-    public void ArmExpectedYesNo(string purpose)
+    public void ArmExpectedYesNo(ExpectedDialogKind kind, string purpose)
     {
+        this.expectedDialogKind = kind;
         this.expectedYesNoPurpose = purpose;
         this.expectedYesNoArmed = true;
         this.expectedYesNoArmedAt = DateTimeOffset.UtcNow;
-        _ = this.TryConfirmExpectedYesNo(false);
     }
 
     public void DisarmExpectedYesNo()
     {
+        this.expectedDialogKind = ExpectedDialogKind.None;
         this.expectedYesNoArmed = false;
         this.expectedYesNoArmedAt = null;
         this.expectedYesNoPurpose = string.Empty;
     }
 
-    public bool ConfirmExpectedYesNo() => this.TryConfirmExpectedYesNo(false);
+    public bool ConfirmExpectedYesNo(ExpectedDialogKind kind)
+        => this.TryConfirmExpectedYesNo(kind);
 
     public bool CancelSellWindow()
     {
@@ -447,29 +449,50 @@ public sealed unsafe class RetainerUi : IDisposable
             this.selectYesNoAddress = 0;
     }
 
-    private bool TryConfirmExpectedYesNo(bool allowStateVerifiedFallback)
+    private bool TryConfirmExpectedYesNo(ExpectedDialogKind kind)
     {
-        if (!this.expectedYesNoArmed && !allowStateVerifiedFallback)
+        if (!this.expectedYesNoArmed ||
+            kind == ExpectedDialogKind.None ||
+            this.expectedDialogKind != kind)
+        {
+            return false;
+        }
+
+        if (this.expectedYesNoArmedAt is not DateTimeOffset armedAt ||
+            DateTimeOffset.UtcNow - armedAt > TimeSpan.FromSeconds(8))
+        {
+            this.DisarmExpectedYesNo();
+            return false;
+        }
+
+        var addon = (AddonSelectYesno*)this.GetVisibleAddon("SelectYesno", this.selectYesNoAddress);
+        if (addon == null || addon->PromptText == null)
             return false;
 
-        var addon = this.GetVisibleAddon("SelectYesno", this.selectYesNoAddress);
-        if (addon == null)
+        var prompt = addon->PromptText->NodeText.ToString().Trim();
+        if (prompt.Length == 0)
+        {
+            this.log.Warning(
+                "Refused to confirm an empty SelectYesno prompt for {Purpose}.",
+                this.expectedYesNoPurpose);
             return false;
+        }
 
         var purpose = string.IsNullOrWhiteSpace(this.expectedYesNoPurpose)
-            ? "state-verified confirmation"
+            ? kind.ToString()
             : this.expectedYesNoPurpose;
 
         // Clear the arm before firing because the callback can immediately
         // finalize the addon and re-enter lifecycle listeners.
-        this.expectedYesNoArmed = false;
-        this.expectedYesNoArmedAt = null;
-        this.expectedYesNoPurpose = string.Empty;
+        this.DisarmExpectedYesNo();
 
         try
         {
-            _ = addon->FireCallbackInt(0);
-            this.log.Debug("Confirmed expected SelectYesno dialog: {Purpose}.", purpose);
+            _ = addon->AtkUnitBase.FireCallbackInt(0);
+            this.log.Debug(
+                "Confirmed state-bound SelectYesno dialog for {Purpose}: {Prompt}",
+                purpose,
+                prompt);
             return true;
         }
         catch (Exception exception)
@@ -477,6 +500,14 @@ public sealed unsafe class RetainerUi : IDisposable
             this.log.Error(exception, "Failed to confirm expected SelectYesno dialog: {Purpose}.", purpose);
             return false;
         }
+    }
+
+    private string GetCurrentYesNoPrompt()
+    {
+        var addon = (AddonSelectYesno*)this.GetVisibleAddon("SelectYesno", this.selectYesNoAddress);
+        return addon == null || addon->PromptText == null
+            ? string.Empty
+            : addon->PromptText->NodeText.ToString();
     }
 
     private AddonRetainerSell* GetRetainerSell()
@@ -560,4 +591,11 @@ public sealed unsafe class RetainerUi : IDisposable
             return false;
         }
     }
+}
+
+public enum ExpectedDialogKind
+{
+    None,
+    MarketListing,
+    RetainerVendorSale,
 }

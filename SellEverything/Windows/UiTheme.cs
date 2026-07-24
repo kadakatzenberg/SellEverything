@@ -94,7 +94,6 @@ internal static class UiTheme
             AutomationState.WaitingForRetainerReady => "Waiting for inventory",
             AutomationState.OpeningSellWindow => "Opening item",
             AutomationState.WaitingForSellWindow => "Waiting for sale window",
-            AutomationState.RequestingMarketPrice => "Requesting prices",
             AutomationState.WaitingForMarketPrice => "Reading market",
             AutomationState.WaitingForMarketResultsClose => "Closing results",
             AutomationState.ExecutingDecision => "Applying decision",

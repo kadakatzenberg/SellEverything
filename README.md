@@ -36,9 +36,11 @@ Version 0.3 replaced the previous polling-first market UI layer with addon
 lifecycle tracking and the native interaction sequence established by
 Marketbuddy. Version 0.3.1 added Penny Pincher-inspired request gating,
 duplicate-request rejection, sell-window HQ detection, active-retainer
-validation, and own-retainer filtering. Version 0.4 adds a modern dashboard,
-searchable queue, activity history, bounded UI retries, confirmation expiry, and
-fault recovery. See `THIRD_PARTY_NOTICES.md` and `DESIGN_REVIEW.md`.
+validation, and own-retainer filtering. Version 0.4 adds a modern dashboard, searchable queue, activity history,
+bounded UI retries, confirmation expiry, and fault recovery. Version 0.4.1
+adds global protected-quantity allocation across matching stacks, stale-queue
+configuration detection, stricter post-transaction dialog gating, and further
+state-machine recovery hardening. See `THIRD_PARTY_NOTICES.md` and `DESIGN_REVIEW.md`.
 
 
 ## Interface

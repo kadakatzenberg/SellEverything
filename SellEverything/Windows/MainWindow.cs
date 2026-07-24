@@ -15,6 +15,8 @@ public sealed class MainWindow : Window
     private string itemSearch = string.Empty;
     private string queueSearch = string.Empty;
     private int queueFilter;
+    private int queueSortColumn;
+    private bool queueSortAscending = true;
     private int protectedQualityIndex;
     private int keepQuantity = 1;
     private bool protectAll = true;
@@ -86,7 +88,8 @@ public sealed class MainWindow : Window
             this.automation.State,
             $"● {UiTheme.FriendlyState(this.automation.State)}");
         ImGui.SameLine();
-        UiTheme.MutedText(this.plugin.Configuration.DryRun ? "DRY RUN" : "LIVE MODE");
+        var dryRun = this.plugin.Configuration.DryRun;
+        ImGui.TextColored(dryRun ? UiTheme.Warning : UiTheme.Danger, dryRun ? "DRY RUN" : "LIVE MODE");
     }
 
     private void DrawOverview()
@@ -277,6 +280,12 @@ public sealed class MainWindow : Window
     {
         UiTheme.SectionTitle("Recent activity", "Newest events appear first.");
 
+        if (this.automation.Activity.Count == 0)
+        {
+            UiTheme.EmptyState("No activity yet.", "Events appear here once a scan or run begins.");
+            return;
+        }
+
         if (!ImGui.BeginTable(
                 "AutomationActivity",
                 3,
@@ -309,9 +318,9 @@ public sealed class MainWindow : Window
     {
         UiTheme.SectionTitle(
             "Sale queue",
-            "Search and filter without changing the order used by the automation.");
+            "Click any column header to sort. Search, filter, and sort change only the view, never the automation order.");
 
-        ImGui.SetNextItemWidth(340);
+        ImGui.SetNextItemWidth(320);
         ImGui.InputTextWithHint("##QueueSearch", "Search item or note", ref this.queueSearch, 128);
 
         ImGui.SameLine();
@@ -327,53 +336,105 @@ public sealed class MainWindow : Window
 
         ImGui.Spacing();
 
+        if (this.automation.Queue.Count == 0)
+        {
+            UiTheme.EmptyState(
+                "The queue is empty.",
+                "Open your retainer list, then use Scan inventory on the Overview tab to build it.");
+            return;
+        }
+
         var filtered = this.automation.Queue.Where(QueueEntryMatchesFilter).ToList();
         UiTheme.MutedText($"Showing {filtered.Count:N0} of {this.automation.Queue.Count:N0} entries");
 
         if (!ImGui.BeginTable(
                 "SellQueue",
                 8,
-                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.SizingStretchProp,
+                ImGuiTableFlags.Sortable | ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY | ImGuiTableFlags.Resizable | ImGuiTableFlags.SizingStretchProp,
                 new Vector2(0, -1)))
         {
             return;
         }
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("Item");
-        ImGui.TableSetupColumn("Quality");
-        ImGui.TableSetupColumn("Qty");
-        ImGui.TableSetupColumn("Market");
-        ImGui.TableSetupColumn("Decision");
-        ImGui.TableSetupColumn("Price");
-        ImGui.TableSetupColumn("State");
-        ImGui.TableSetupColumn("Note");
+        ImGui.TableSetupColumn("Item", ImGuiTableColumnFlags.WidthStretch | ImGuiTableColumnFlags.DefaultSort, 2.6f);
+        ImGui.TableSetupColumn("Quality", ImGuiTableColumnFlags.WidthFixed, 64f);
+        ImGui.TableSetupColumn("Qty", ImGuiTableColumnFlags.WidthFixed, 74f);
+        ImGui.TableSetupColumn("Market", ImGuiTableColumnFlags.WidthFixed, 100f);
+        ImGui.TableSetupColumn("Decision", ImGuiTableColumnFlags.WidthFixed, 96f);
+        ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 92f);
+        ImGui.TableSetupColumn("State", ImGuiTableColumnFlags.WidthFixed, 104f);
+        ImGui.TableSetupColumn("Note", ImGuiTableColumnFlags.WidthStretch | ImGuiTableColumnFlags.NoSort, 2.4f);
         ImGui.TableHeadersRow();
 
-        foreach (var entry in filtered)
+        var sortSpecs = ImGui.TableGetSortSpecs();
+        if (sortSpecs.SpecsCount > 0)
+        {
+            var spec = sortSpecs.Specs;
+            this.queueSortColumn = spec.ColumnIndex;
+            this.queueSortAscending = spec.SortDirection != ImGuiSortDirection.Descending;
+        }
+
+        foreach (var entry in SortQueueEntries(filtered))
         {
             ImGui.TableNextRow();
+
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(entry.Candidate.ItemName);
+
             ImGui.TableNextColumn();
             ImGui.TextColored(entry.Candidate.IsHq ? UiTheme.Warning : UiTheme.Muted, entry.Candidate.QualityLabel);
+
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(entry.Candidate.IsPartialStack
-                ? $"{entry.Candidate.SellQuantity:N0}/{entry.Candidate.Quantity:N0}"
-                : entry.Candidate.Quantity.ToString("N0"));
+            if (entry.Candidate.IsPartialStack)
+            {
+                ImGui.TextColored(UiTheme.Accent, $"{entry.Candidate.SellQuantity:N0}/{entry.Candidate.Quantity:N0}");
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip($"Selling {entry.Candidate.SellQuantity:N0}, keeping {entry.Candidate.ProtectedQuantity:N0}.");
+            }
+            else
+            {
+                ImGui.TextUnformatted(entry.Candidate.Quantity.ToString("N0"));
+            }
+
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"NQ {entry.NqListingsSeen} / HQ {entry.HqListingsSeen}");
+
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(entry.Action == SellAction.Unknown ? "-" : entry.Action.ToString());
+            ImGui.TextColored(UiTheme.DecisionColor(entry.Action), UiTheme.DecisionLabel(entry.Action));
+
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(entry.ListingPrice?.ToString("N0") ?? entry.LowestMatchingPrice?.ToString("N0") ?? "-");
+            var price = entry.ListingPrice ?? entry.LowestMatchingPrice;
+            ImGui.TextUnformatted(price?.ToString("N0") ?? "-");
+
             ImGui.TableNextColumn();
-            ImGui.TextColored(UiTheme.QueueStateColor(entry.State), entry.State.ToString());
+            ImGui.TextColored(UiTheme.QueueStateColor(entry.State), UiTheme.FriendlyQueueState(entry.State));
+
             ImGui.TableNextColumn();
-            ImGui.TextWrapped(entry.Note);
+            if (string.IsNullOrWhiteSpace(entry.Note))
+                UiTheme.MutedText("-");
+            else
+                ImGui.TextWrapped(entry.Note);
         }
 
         ImGui.EndTable();
+    }
+
+    private List<SellQueueEntry> SortQueueEntries(List<SellQueueEntry> entries)
+    {
+        IOrderedEnumerable<SellQueueEntry> ordered = this.queueSortColumn switch
+        {
+            1 => entries.OrderBy(e => e.Candidate.IsHq ? 0 : 1),
+            2 => entries.OrderBy(e => e.Candidate.SellQuantity),
+            3 => entries.OrderBy(e => e.NqListingsSeen + e.HqListingsSeen),
+            4 => entries.OrderBy(e => (int)e.Action),
+            5 => entries.OrderBy(e => e.ListingPrice ?? e.LowestMatchingPrice ?? uint.MaxValue),
+            6 => entries.OrderBy(e => (int)e.State),
+            _ => entries.OrderBy(e => e.Candidate.ItemName, StringComparer.OrdinalIgnoreCase),
+        };
+
+        ordered = ordered.ThenBy(e => e.Candidate.ItemName, StringComparer.OrdinalIgnoreCase);
+        return this.queueSortAscending ? ordered.ToList() : ((IEnumerable<SellQueueEntry>)ordered).Reverse().ToList();
     }
 
     private void DrawProtectedItems()

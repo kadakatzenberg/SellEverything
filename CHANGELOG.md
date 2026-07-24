@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.2.0
+
+- Adds sortable queue columns: click any header (Item, Quality, Qty, Market, Decision, Price, State) to sort ascending or descending. The queue now defaults to alphabetical order by item name.
+- Sorting, searching, and filtering affect only the on-screen view and never change the order the automation processes entries.
+- Reworks the queue rows with clearer decision labels, friendlier state names, partial-stack sell/keep tooltips, and muted empty-note markers.
+- Adds empty-state messages to the queue and activity views when there is nothing to show yet.
+- Refreshes the overall theme with rounded panels, accent-tinted tables and headers, tighter spacing, and a color-coded live/dry-run indicator.
+
 ## 0.4.1.0
 
 - Allocates protected keep quantities globally across matching stacks of the same item and quality instead of preserving the full keep amount in every stack.

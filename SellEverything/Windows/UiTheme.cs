@@ -81,10 +81,44 @@ internal static class UiTheme
 
     public static void SectionTitle(string title, string? subtitle = null)
     {
+        var baseX = ImGui.GetCursorPosX();
+        var drawList = ImGui.GetWindowDrawList();
+        var anchor = ImGui.GetCursorScreenPos();
+        var lineHeight = ImGui.GetTextLineHeight();
+        drawList.AddRectFilled(
+            new Vector2(anchor.X, anchor.Y + 1f),
+            new Vector2(anchor.X + 3f, anchor.Y + lineHeight),
+            ImGui.GetColorU32(Accent),
+            1.5f);
+
+        ImGui.SetCursorScreenPos(new Vector2(anchor.X + 10f, anchor.Y));
         ImGui.TextColored(Accent, title);
+
         if (!string.IsNullOrWhiteSpace(subtitle))
+        {
+            ImGui.SetCursorPosX(baseX + 10f);
             ImGui.TextColored(Muted, subtitle);
+        }
+
         ImGui.Spacing();
+    }
+
+    public static void Pill(string text, Vector4 color)
+    {
+        var padding = new Vector2(9f, 3f);
+        var textSize = ImGui.CalcTextSize(text);
+        var origin = ImGui.GetCursorScreenPos();
+        var size = new Vector2(textSize.X + (padding.X * 2f), textSize.Y + (padding.Y * 2f));
+
+        var drawList = ImGui.GetWindowDrawList();
+        drawList.AddRectFilled(
+            origin,
+            new Vector2(origin.X + size.X, origin.Y + size.Y),
+            ImGui.GetColorU32(new Vector4(color.X, color.Y, color.Z, 0.20f)),
+            size.Y * 0.5f);
+        drawList.AddText(new Vector2(origin.X + padding.X, origin.Y + padding.Y), ImGui.GetColorU32(color), text);
+
+        ImGui.Dummy(size);
     }
 
     public static void MutedText(string text) => ImGui.TextColored(Muted, text);

@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private int queueFilter;
     private int queueSortColumn;
     private bool queueSortAscending = true;
+    private int activeSection;
     private int protectedQualityIndex;
     private int keepQuantity = 1;
     private bool protectAll = true;
@@ -40,37 +41,37 @@ public sealed class MainWindow : Window
         UiTheme.PushWindowStyle();
         try
         {
-            DrawHeader();
-            ImGui.Separator();
+            DrawHeroHeader();
+            ImGui.Spacing();
 
-            if (ImGui.BeginTabBar("SellEverythingTabs"))
+            var available = ImGui.GetContentRegionAvail();
+
+            ImGui.BeginChild("SellEverythingNav", new Vector2(168f, available.Y), false);
+            DrawNav();
+            ImGui.EndChild();
+
+            ImGui.SameLine();
+
+            ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(1f, 1f, 1f, 0.015f));
+            ImGui.BeginChild("SellEverythingContent", new Vector2(0, available.Y), true);
+            switch (this.activeSection)
             {
-                if (ImGui.BeginTabItem("Overview"))
-                {
-                    DrawOverview();
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem("Queue"))
-                {
+                case 1:
                     DrawQueue();
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem("Protected Items"))
-                {
+                    break;
+                case 2:
                     DrawProtectedItems();
-                    ImGui.EndTabItem();
-                }
-
-                if (ImGui.BeginTabItem("Settings"))
-                {
+                    break;
+                case 3:
                     DrawSettingsSummary();
-                    ImGui.EndTabItem();
-                }
-
-                ImGui.EndTabBar();
+                    break;
+                default:
+                    DrawOverview();
+                    break;
             }
+
+            ImGui.EndChild();
+            ImGui.PopStyleColor();
         }
         finally
         {
@@ -78,18 +79,60 @@ public sealed class MainWindow : Window
         }
     }
 
-    private void DrawHeader()
+    private void DrawHeroHeader()
     {
-        ImGui.TextColored(UiTheme.Accent, "SELL EVERYTHING");
-        ImGui.SameLine();
+        var drawList = ImGui.GetWindowDrawList();
+        var origin = ImGui.GetCursorScreenPos();
+        var width = ImGui.GetContentRegionAvail().X;
+        const float height = 46f;
+        var corner = new Vector2(origin.X + width, origin.Y + height);
+
+        drawList.AddRectFilled(
+            origin,
+            corner,
+            ImGui.GetColorU32(new Vector4(UiTheme.Accent.X, UiTheme.Accent.Y, UiTheme.Accent.Z, 0.10f)),
+            6f);
+        drawList.AddRectFilled(origin, new Vector2(origin.X + 4f, corner.Y), ImGui.GetColorU32(UiTheme.Accent), 6f);
+
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + 16f, origin.Y + 6f));
+        ImGui.TextColored(UiTheme.Accent, "SELL  EVERYTHING");
+        ImGui.SetCursorScreenPos(new Vector2(origin.X + 16f, origin.Y + 24f));
         UiTheme.MutedText("Retainer market automation");
 
-        UiTheme.StatusText(
-            this.automation.State,
-            $"● {UiTheme.FriendlyState(this.automation.State)}");
+        ImGui.SetCursorScreenPos(new Vector2(origin.X, corner.Y + 8f));
+
+        UiTheme.Pill($"● {UiTheme.FriendlyState(this.automation.State)}", UiTheme.StateColor(this.automation.State));
         ImGui.SameLine();
         var dryRun = this.plugin.Configuration.DryRun;
-        ImGui.TextColored(dryRun ? UiTheme.Warning : UiTheme.Danger, dryRun ? "DRY RUN" : "LIVE MODE");
+        UiTheme.Pill(dryRun ? "DRY RUN" : "LIVE MODE", dryRun ? UiTheme.Warning : UiTheme.Danger);
+
+        if (this.automation.LocksConfiguration)
+        {
+            ImGui.SameLine();
+            UiTheme.Pill("LOCKED", UiTheme.Muted);
+        }
+
+        if (this.automation.State == AutomationState.Faulted)
+        {
+            ImGui.SameLine();
+            UiTheme.Pill("FAULT", UiTheme.Danger);
+        }
+
+        ImGui.NewLine();
+    }
+
+    private void DrawNav()
+    {
+        DrawNavItem(0, "Overview");
+        DrawNavItem(1, this.automation.Queue.Count > 0 ? $"Queue  ({this.automation.Queue.Count})" : "Queue");
+        DrawNavItem(2, "Protected");
+        DrawNavItem(3, "Settings");
+    }
+
+    private void DrawNavItem(int index, string label)
+    {
+        if (ImGui.Selectable($"   {label}", this.activeSection == index, ImGuiSelectableFlags.None, new Vector2(0, 32f)))
+            this.activeSection = index;
     }
 
     private void DrawOverview()
@@ -240,12 +283,19 @@ public sealed class MainWindow : Window
     private static void DrawMetricCell(string label, int value, Vector4 color)
     {
         ImGui.TableNextColumn();
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(color.X, color.Y, color.Z, 0.16f));
-        if (ImGui.BeginChild($"Metric{label}", new Vector2(0, 58), true, ImGuiWindowFlags.NoScrollbar))
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(color.X, color.Y, color.Z, 0.14f));
+        if (ImGui.BeginChild($"Metric{label}", new Vector2(0, 62), true, ImGuiWindowFlags.NoScrollbar))
         {
+            var drawList = ImGui.GetWindowDrawList();
+            var origin = ImGui.GetWindowPos();
+            var width = ImGui.GetWindowSize().X;
+            drawList.AddRectFilled(origin, new Vector2(origin.X + width, origin.Y + 3f), ImGui.GetColorU32(color));
+
+            ImGui.Spacing();
             ImGui.TextColored(color, value.ToString("N0"));
             UiTheme.MutedText(label);
         }
+
         ImGui.EndChild();
         ImGui.PopStyleColor();
     }

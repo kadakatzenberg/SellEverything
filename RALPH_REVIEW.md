@@ -1,8 +1,37 @@
 # Ralph Review Log
 
-Sell Everything 0.4.1.0 was reviewed through repeated inspect, patch, validate,
+Sell Everything was reviewed through repeated inspect, patch, validate,
 and re-inspect loops. These are static engineering passes. FFXIV client behavior
 was not simulated.
+
+## Interface loop A: Queue sorting and view/state separation
+
+- Added native ImGui sortable headers to the sale queue with an alphabetical
+  default so the queue no longer opens in raw scan order.
+- Confirmed sort, search, and filter operate on a copied view list only, so the
+  automation's processing order is never mutated.
+- Left the free-text note column unsortable and gave unpriced entries a
+  deterministic last-place ordering.
+
+## Interface loop B: Layout and component redesign
+
+- Replaced the top tab bar with a left navigation rail and a bordered content
+  pane, taking cues from sidebar-driven plugin layouts.
+- Added a hero header band with an accent spine, and a reusable pill component
+  used for automation state, live/dry-run mode, lock, and fault indicators.
+- Reworked section titles with an accent spine and gave metric tiles a colored
+  top accent for stronger hierarchy.
+
+## Interface loop C: ImGui scope and font-safety review
+
+- Verified every BeginChild is paired with an unconditional EndChild and every
+  BeginTable that returns true is closed exactly once.
+- Kept sort-spec reading to the single primary spec to avoid pointer indexing
+  differences across binding versions.
+- Restricted new glyphs to the bullet already proven in this codebase and used
+  draw-list primitives for accents so no additional font ranges are required.
+- Noted that a Windows `dotnet build` is still required to confirm the
+  `Dalamud.Bindings.ImGui` sort-spec and draw-list surface at compile time.
 
 ## Loop 1: State reachability and numeric correctness
 

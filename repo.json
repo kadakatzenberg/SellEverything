@@ -3,7 +3,7 @@
     "Author": "Kadamode",
     "Name": "Sell Everything",
     "Punchline": "Automatically price and liquidate marketable inventory through retainers.",
-    "Description": "Modern retainer automation with strict HQ/NQ pricing, bounded retries, searchable queue, protected-item rules, and fault recovery.",
+    "Description": "Modern retainer automation with strict HQ/NQ pricing, bounded retries, a sortable and searchable queue, protected-item rules, and fault recovery.",
     "Tags": [
       "retainer",
       "marketboard",
@@ -11,13 +11,13 @@
       "automation"
     ],
     "InternalName": "SellEverything",
-    "AssemblyVersion": "0.4.1.0",
+    "AssemblyVersion": "0.4.2.0",
     "RepoUrl": "https://github.com/kadakatzenberg/SellEverything",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.4.1.0/SellEverything.zip",
-    "DownloadLinkUpdate": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.4.1.0/SellEverything.zip"
+    "DownloadLinkInstall": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.4.2.0/SellEverything.zip",
+    "DownloadLinkUpdate": "https://github.com/kadakatzenberg/SellEverything/releases/download/0.4.2.0/SellEverything.zip"
   }
 ]

@@ -13,18 +13,55 @@ internal static class UiTheme
     public static readonly Vector4 Warning = new(0.95f, 0.69f, 0.27f, 1.00f);
     public static readonly Vector4 Danger = new(0.90f, 0.31f, 0.34f, 1.00f);
     public static readonly Vector4 Muted = new(0.62f, 0.66f, 0.72f, 1.00f);
+    public static readonly Vector4 Faint = new(0.62f, 0.66f, 0.72f, 0.62f);
     public static readonly Vector4 Surface = new(0.18f, 0.20f, 0.24f, 1.00f);
     public static readonly Vector4 SurfaceHover = new(0.23f, 0.26f, 0.31f, 1.00f);
+
+    private const int StyleVarCount = 11;
+    private const int StyleColorCount = 13;
 
     public static void PushWindowStyle()
     {
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 5f);
         ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 6f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 6f);
+        ImGui.PushStyleVar(ImGuiStyleVar.PopupRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarRounding, 5f);
+        ImGui.PushStyleVar(ImGuiStyleVar.TabRounding, 5f);
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(9f, 7f));
-        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(8f, 5f));
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(8f, 6f));
+        ImGui.PushStyleVar(ImGuiStyleVar.CellPadding, new Vector2(8f, 5f));
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(12f, 10f));
+
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.22f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.38f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.52f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.16f, 0.18f, 0.22f, 0.90f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, SurfaceHover);
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, SurfaceHover);
+        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, new Vector4(0.16f, 0.18f, 0.22f, 1.00f));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderStrong, new Vector4(Accent.X, Accent.Y, Accent.Z, 0.30f));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderLight, new Vector4(1f, 1f, 1f, 0.06f));
+        ImGui.PushStyleColor(ImGuiCol.TableRowBgAlt, new Vector4(1f, 1f, 1f, 0.025f));
+        ImGui.PushStyleColor(ImGuiCol.CheckMark, Accent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrab, Accent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrabActive, AccentStrong);
     }
 
-    public static void PopWindowStyle() => ImGui.PopStyleVar(4);
+    public static void PopWindowStyle()
+    {
+        ImGui.PopStyleColor(StyleColorCount);
+        ImGui.PopStyleVar(StyleVarCount);
+    }
+
+    public static void EmptyState(string title, string? subtitle = null)
+    {
+        ImGui.Spacing();
+        ImGui.TextColored(Muted, title);
+        if (!string.IsNullOrWhiteSpace(subtitle))
+            ImGui.TextColored(Faint, subtitle);
+    }
 
     public static bool PrimaryButton(string label, Vector2 size)
         => ColoredButton(label, size, AccentStrong, Accent, AccentStrong);
@@ -73,6 +110,34 @@ internal static class UiTheme
             QueueEntryState.Skipped => Warning,
             QueueEntryState.Pending => Muted,
             _ => Accent,
+        };
+
+    public static Vector4 DecisionColor(SellAction action)
+        => action switch
+        {
+            SellAction.MarketList => Accent,
+            SellAction.RetainerVendor => Warning,
+            SellAction.Skip => Muted,
+            _ => Faint,
+        };
+
+    public static string DecisionLabel(SellAction action)
+        => action switch
+        {
+            SellAction.MarketList => "List",
+            SellAction.RetainerVendor => "Vendor",
+            SellAction.Skip => "Skip",
+            _ => "Pending",
+        };
+
+    public static string FriendlyQueueState(QueueEntryState state)
+        => state switch
+        {
+            QueueEntryState.OpeningSellWindow => "Opening",
+            QueueEntryState.RequestingPrice => "Pricing",
+            QueueEntryState.PriceReceived => "Priced",
+            QueueEntryState.Executing => "Executing",
+            _ => state.ToString(),
         };
 
     public static Vector4 ActivityColor(AutomationActivityKind kind)

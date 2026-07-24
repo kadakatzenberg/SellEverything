@@ -40,7 +40,9 @@ validation, and own-retainer filtering. Version 0.4 adds a modern dashboard, sea
 bounded UI retries, confirmation expiry, and fault recovery. Version 0.4.1
 adds global protected-quantity allocation across matching stacks, stale-queue
 configuration detection, stricter post-transaction dialog gating, and further
-state-machine recovery hardening. See `THIRD_PARTY_NOTICES.md` and `DESIGN_REVIEW.md`.
+state-machine recovery hardening. Version 0.4.2 adds sortable queue columns,
+a refreshed interface theme, and view-only sorting that leaves the automation
+order untouched. See `THIRD_PARTY_NOTICES.md` and `DESIGN_REVIEW.md`.
 
 
 ## Interface

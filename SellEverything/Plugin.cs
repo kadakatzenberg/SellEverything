@@ -17,12 +17,14 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+    [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("SellEverything");
     private readonly MarketPriceCollector marketPrices;
+    private readonly RetainerUi retainerUi;
     private readonly SellAutomation automation;
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
@@ -33,9 +35,10 @@ public sealed class Plugin : IDalamudPlugin
         this.Configuration.Initialize(PluginInterface);
 
         var scanner = new InventoryScanner(DataManager, Log);
-        this.marketPrices = new MarketPriceCollector(MarketBoard, Log);
-        var retainerUi = new RetainerUi(GameGui, Log);
-        this.automation = new SellAutomation(this.Configuration, scanner, this.marketPrices, retainerUi, ChatGui, Log);
+        this.marketPrices = new MarketPriceCollector(MarketBoard, Log, this.Configuration);
+        this.retainerUi = new RetainerUi(GameGui, AddonLifecycle, Log);
+        this.retainerUi.MarketResultsOpened += this.marketPrices.Activate;
+        this.automation = new SellAutomation(this.Configuration, scanner, this.marketPrices, this.retainerUi, ChatGui, Log);
 
         this.mainWindow = new MainWindow(this, this.automation);
         this.configWindow = new ConfigWindow(this);
@@ -44,7 +47,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(this.OnCommand)
         {
-            HelpMessage = "Open Sell Everything. Open the retainer list first, then use start. Subcommands: scan, start, pause, resume, stop, config."
+            HelpMessage = "Open Sell Everything. Open the retainer list first, then use start. Subcommands: scan, start, pause, resume, retry, stop, config."
         });
 
         PluginInterface.UiBuilder.Draw += this.windowSystem.Draw;
@@ -65,6 +68,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= this.ToggleConfigUi;
         CommandManager.RemoveHandler(CommandName);
         this.automation.Stop();
+        this.retainerUi.MarketResultsOpened -= this.marketPrices.Activate;
+        this.retainerUi.Dispose();
         this.marketPrices.Dispose();
         this.windowSystem.RemoveAllWindows();
     }
@@ -94,6 +99,10 @@ public sealed class Plugin : IDalamudPlugin
                 break;
             case "resume":
                 this.automation.Resume();
+                break;
+            case "retry":
+                this.automation.RetryFailed();
+                this.mainWindow.IsOpen = true;
                 break;
             case "stop":
                 this.automation.Stop();

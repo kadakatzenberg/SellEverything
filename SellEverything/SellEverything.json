@@ -2,7 +2,7 @@
   "Author": "Kadamode",
   "Name": "Sell Everything",
   "Punchline": "Automatically price and liquidate marketable inventory through retainers.",
-  "Description": "Starting from the retainer list, selects retainers and processes eligible inventory through the in-game Compare Prices flow. NQ items use only NQ listings and HQ items use only HQ listings. Matching prices below 100 gil are sold through the retainer; other items are listed one gil below the lowest matching offer. Includes protected-item rules, expected-dialog confirmation, strict request validation, and an emergency stop. Use /selleverything.",
+  "Description": "Starting from the retainer list, selects retainers and processes eligible inventory through the in-game Compare Prices flow. NQ items use only NQ listings and HQ items use only HQ listings. Matching prices below the configured floor are sold through the retainer; other items are listed below the lowest matching offer. Includes a modern tabbed dashboard, searchable queue, protected-item rules, bounded UI retries, expected-dialog confirmation, strict request validation, own-retainer filtering, sell-window quality verification, activity history, fault recovery, and an emergency stop. Use /selleverything.",
   "ApplicableVersion": "any",
   "Tags": [
     "retainer",

@@ -7,7 +7,7 @@ namespace SellEverything;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 5;
 
     public uint MarketFloor { get; set; } = 100;
     public uint UndercutAmount { get; set; } = 1;
@@ -21,6 +21,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool SkipCollectables { get; set; } = true;
     public bool AutomateRetainers { get; set; } = true;
     public bool AutoConfirmExpectedDialogs { get; set; } = true;
+    public bool UndercutOwnRetainers { get; set; } = false;
     public int RetainersPerSession { get; set; } = 6;
 
     // Retainer menu order in the current client:

@@ -14,11 +14,16 @@ public sealed class SellAutomation
     private readonly IPluginLog log;
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly HashSet<ItemQualityKey> skippedForSession = [];
+    private readonly List<AutomationActivity> activity = [];
 
     private DateTimeOffset stateStartedAt;
+    private DateTimeOffset lastListingConfirmAttemptAt;
+    private DateTimeOffset lastVendorAttemptAt;
     private int currentIndex;
     private int currentRetainerIndex;
     private int sessionRetainerLimit;
+    private int listingConfirmAttempts;
+    private int vendorAttempts;
 
     public SellAutomation(
         Configuration configuration,
@@ -41,6 +46,13 @@ public sealed class SellAutomation
     public string Status { get; private set; } = "Idle";
     public int CurrentRetainerNumber => this.currentRetainerIndex + 1;
     public int SessionRetainerLimit => this.sessionRetainerLimit;
+    public IReadOnlyList<AutomationActivity> Activity => this.activity;
+    public string LastFault { get; private set; } = string.Empty;
+    public int ProcessedCount => this.Queue.Count(entry => entry.State is QueueEntryState.Completed or QueueEntryState.Skipped or QueueEntryState.Failed);
+    public float ProgressFraction => this.Queue.Count == 0 ? 0f : Math.Clamp((float)this.ProcessedCount / this.Queue.Count, 0f, 1f);
+    public TimeSpan CurrentStateElapsed => this.stateStartedAt == default
+        ? TimeSpan.Zero
+        : DateTimeOffset.UtcNow - this.stateStartedAt;
 
     public bool IsRunning => this.State is not AutomationState.Idle
         and not AutomationState.ReadyForReview
@@ -63,7 +75,11 @@ public sealed class SellAutomation
             .Select(candidate => new SellQueueEntry { Candidate = candidate }));
         this.currentIndex = FindNextPendingIndex();
         this.State = AutomationState.ReadyForReview;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
         this.Status = $"Review {this.Queue.Count} eligible stacks.";
+        this.LastFault = string.Empty;
+        RecordActivity(this.Status, AutomationActivityKind.Info);
     }
 
     public void Start()
@@ -82,6 +98,9 @@ public sealed class SellAutomation
         }
 
         this.currentRetainerIndex = 0;
+        this.listingConfirmAttempts = 0;
+        this.vendorAttempts = 0;
+        this.LastFault = string.Empty;
         var detectedRetainers = this.retainerUi.RetainerCount;
         this.sessionRetainerLimit = detectedRetainers > 0
             ? Math.Min(Math.Max(1, this.configuration.RetainersPerSession), detectedRetainers)
@@ -120,14 +139,21 @@ public sealed class SellAutomation
     public void Pause(string reason = "Paused by user.")
     {
         this.marketPrices.Cancel();
+        this.retainerUi.DisarmComparePrices();
+        this.retainerUi.DisarmExpectedYesNo();
         this.State = AutomationState.Paused;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
         this.Status = reason;
+        RecordActivity(reason, AutomationActivityKind.Warning);
     }
 
     public void Resume()
     {
         if (this.State != AutomationState.Paused)
             return;
+
+        RecordActivity("Resume requested.", AutomationActivityKind.Info);
 
         if (this.configuration.DryRun)
         {
@@ -149,12 +175,54 @@ public sealed class SellAutomation
     public void Stop()
     {
         this.marketPrices.Cancel();
+        this.retainerUi.DisarmComparePrices();
+        this.retainerUi.DisarmExpectedYesNo();
         this.State = AutomationState.Idle;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
         this.Status = "Stopped.";
+        RecordActivity(this.Status, AutomationActivityKind.Warning);
+    }
+
+    public void RetryFailed()
+    {
+        if (this.IsRunning)
+            return;
+
+        var reset = 0;
+        foreach (var entry in this.Queue.Where(entry => entry.State == QueueEntryState.Failed))
+        {
+            entry.State = QueueEntryState.Pending;
+            entry.Action = SellAction.Unknown;
+            entry.LowestMatchingPrice = null;
+            entry.ListingPrice = null;
+            entry.HqListingsSeen = 0;
+            entry.NqListingsSeen = 0;
+            entry.OwnListingsIgnored = 0;
+            entry.MarketRequestId = null;
+            entry.Note = string.Empty;
+            reset++;
+        }
+
+        if (reset == 0)
+            return;
+
+        this.currentIndex = FindNextPendingIndex();
+        this.State = AutomationState.ReadyForReview;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
+        this.Status = $"Reset {reset} failed entr{(reset == 1 ? "y" : "ies")} for retry.";
+        this.LastFault = string.Empty;
+        RecordActivity(this.Status, AutomationActivityKind.Info);
     }
 
     public void Update()
     {
+        // Lifecycle-triggered UI work is pumped every frame so Compare Prices
+        // and expected confirmation dialogs are not delayed by the configured
+        // automation pacing.
+        this.retainerUi.Pump();
+
         if (!this.IsRunning)
             return;
 
@@ -321,6 +389,8 @@ public sealed class SellAutomation
         }
 
         this.Current.State = QueueEntryState.OpeningSellWindow;
+        this.listingConfirmAttempts = 0;
+        this.vendorAttempts = 0;
 
         if (this.configuration.DryRun)
         {
@@ -342,8 +412,17 @@ public sealed class SellAutomation
 
         this.Current.Candidate = live;
 
+        // Begin collecting before RetainerSell is opened, then arm the native
+        // Compare Prices event. RetainerUi dispatches it from PostSetup, which
+        // is the same timing pattern used by Marketbuddy.
+        this.marketPrices.Cancel();
+        this.marketPrices.Begin(live.ItemId, live.IsHq);
+        this.retainerUi.ArmComparePrices(live.IsHq, live.ItemName);
+
         if (!this.retainerUi.OpenPutUpForSale(live.InventoryType, live.Slot))
         {
+            this.marketPrices.Cancel();
+            this.retainerUi.DisarmComparePrices();
             MoveToNextRetainer("Current retainer cannot accept another listing.");
             return;
         }
@@ -357,19 +436,62 @@ public sealed class SellAutomation
     {
         if (this.retainerUi.IsRetainerSellOpen)
         {
-            this.Transition(AutomationState.RequestingMarketPrice, "Preparing strict quality market search.");
+            if (!string.IsNullOrEmpty(this.retainerUi.ComparePricesValidationFailure))
+            {
+                this.marketPrices.Cancel();
+                var failure = this.retainerUi.ComparePricesValidationFailure;
+                this.retainerUi.CancelSellWindow();
+                this.retainerUi.DisarmComparePrices();
+                throw new InvalidOperationException(failure);
+            }
+
+            if (!this.retainerUi.IsRetainerContextActive)
+            {
+                if (this.ElapsedInState > UiTimeout)
+                {
+                    this.marketPrices.Cancel();
+                    this.retainerUi.DisarmComparePrices();
+                    throw new TimeoutException("RetainerSell opened without an active retainer context.");
+                }
+
+                this.Status = "Waiting for the active retainer context.";
+                return;
+            }
+
+            if (!this.retainerUi.ComparePricesDispatched && !this.retainerUi.TryDispatchComparePrices())
+            {
+                if (this.ElapsedInState > UiTimeout)
+                {
+                    this.marketPrices.Cancel();
+                    this.retainerUi.DisarmComparePrices();
+                    throw new TimeoutException("Compare Prices did not dispatch after RetainerSell setup.");
+                }
+
+                this.Status = $"Waiting for Compare Prices on {this.Current?.Candidate.ItemName}.";
+                return;
+            }
+
+            this.Transition(
+                AutomationState.WaitingForMarketPrice,
+                $"Waiting for {this.Current?.Candidate.QualityLabel}-only market listings.");
             return;
         }
 
         if (this.retainerUi.IsSelectOkOpen)
         {
+            this.marketPrices.Cancel();
+            this.retainerUi.DisarmComparePrices();
             this.retainerUi.DismissExpectedOk();
             MoveToNextRetainer("Current retainer has no usable selling slot.");
             return;
         }
 
         if (this.ElapsedInState > TimeSpan.FromMilliseconds(Math.Min(this.configuration.UiTimeoutMilliseconds, 8000)))
+        {
+            this.marketPrices.Cancel();
+            this.retainerUi.DisarmComparePrices();
             MoveToNextRetainer("Put Up for Sale did not open; treating this retainer as full.");
+        }
     }
 
     private void RequestMarketPrice()
@@ -377,32 +499,24 @@ public sealed class SellAutomation
         if (this.Current is null)
             throw new InvalidOperationException("No active sale entry.");
 
-        if (!this.scanner.TryValidate(this.configuration, this.Current.Candidate, out var live))
-            throw new InvalidOperationException("The inventory slot changed before Compare Prices.");
-
-        this.Current.Candidate = live;
-        this.Current.State = QueueEntryState.RequestingPrice;
-
-        // RetainerSell can be visible one or two frames before its controls are
-        // enabled. Retry instead of faulting or leaving the button untouched.
         if (!this.marketPrices.Waiting)
-            this.marketPrices.Begin(live.ItemId, live.IsHq);
+            this.marketPrices.Begin(this.Current.Candidate.ItemId, this.Current.Candidate.IsHq);
 
-        if (!this.retainerUi.ClickComparePrices())
+        if (!this.retainerUi.ComparePricesDispatched && !this.retainerUi.TryDispatchComparePrices())
         {
             if (this.ElapsedInState > UiTimeout)
             {
                 this.marketPrices.Cancel();
-                throw new TimeoutException("Compare Prices did not become clickable.");
+                this.retainerUi.DisarmComparePrices();
+                throw new TimeoutException("Compare Prices did not dispatch.");
             }
 
-            this.Status = $"Waiting for Compare Prices on {live.ItemName} ({live.QualityLabel}).";
             return;
         }
 
         this.Transition(
             AutomationState.WaitingForMarketPrice,
-            $"Waiting for {live.QualityLabel}-only listings for {live.ItemName}.");
+            $"Waiting for {this.Current.Candidate.QualityLabel}-only listings for {this.Current.Candidate.ItemName}.");
     }
 
     private void WaitForMarketPrice()
@@ -422,6 +536,7 @@ public sealed class SellAutomation
             this.Current.MarketRequestId = result.RequestId;
             this.Current.HqListingsSeen = result.HqListings;
             this.Current.NqListingsSeen = result.NqListings;
+            this.Current.OwnListingsIgnored = result.OwnListingsIgnored;
             this.Current.LowestMatchingPrice = result.LowestPrice;
             this.Current.State = QueueEntryState.PriceReceived;
             Decide(result);
@@ -433,9 +548,24 @@ public sealed class SellAutomation
             return;
         }
 
+        if (!this.marketPrices.Active &&
+            !this.retainerUi.IsMarketResultsOpen &&
+            this.retainerUi.ComparePricesDispatched &&
+            this.retainerUi.ComparePricesDispatchAttempts < 3 &&
+            this.retainerUi.LastComparePricesDispatchAt is DateTimeOffset lastDispatch &&
+            DateTimeOffset.UtcNow - lastDispatch > TimeSpan.FromSeconds(2.5))
+        {
+            if (this.retainerUi.RetryComparePrices())
+            {
+                this.Status = $"Retrying Compare Prices ({this.retainerUi.ComparePricesDispatchAttempts}/3) for {this.Current.Candidate.ItemName}.";
+                RecordActivity(this.Status, AutomationActivityKind.Warning);
+            }
+        }
+
         if (this.ElapsedInState > MarketTimeout)
         {
             this.marketPrices.Cancel();
+            this.retainerUi.DisarmComparePrices();
             MarkCurrentSkipped("No valid market response before timeout.");
             this.retainerUi.CloseMarketResults();
             this.retainerUi.CancelSellWindow();
@@ -451,13 +581,15 @@ public sealed class SellAutomation
         var requestedQuality = this.Current.Candidate.QualityLabel;
         var oppositeCount = this.Current.Candidate.IsHq ? result.NqListings : result.HqListings;
         var matchingCount = this.Current.Candidate.IsHq ? result.HqListings : result.NqListings;
+        var ownIgnored = result.OwnListingsIgnored;
+        var ownSuffix = ownIgnored > 0 ? $" Own listings ignored {ownIgnored}." : string.Empty;
 
         if (result.LowestPrice is null)
         {
             this.skippedForSession.Add(new ItemQualityKey(result.ItemId, result.IsHq));
             this.Current.Action = SellAction.Skip;
             this.Current.Note =
-                $"{requestedQuality}: no matching listings. Matching {matchingCount}, opposite-quality ignored {oppositeCount}.";
+                $"{requestedQuality}: no matching listings. Matching {matchingCount}, opposite-quality ignored {oppositeCount}.{ownSuffix}";
             return;
         }
 
@@ -465,14 +597,14 @@ public sealed class SellAutomation
         {
             this.Current.Action = SellAction.RetainerVendor;
             this.Current.Note =
-                $"{requestedQuality}: lowest {result.LowestPrice.Value:N0}; opposite-quality ignored {oppositeCount}. Retainer sale.";
+                $"{requestedQuality}: lowest {result.LowestPrice.Value:N0}; opposite-quality ignored {oppositeCount}.{ownSuffix} Retainer sale.";
             return;
         }
 
         this.Current.Action = SellAction.MarketList;
         this.Current.ListingPrice = Math.Max(1, result.LowestPrice.Value - this.configuration.UndercutAmount);
         this.Current.Note =
-            $"{requestedQuality}: lowest {result.LowestPrice.Value:N0}; opposite-quality ignored {oppositeCount}. List at {this.Current.ListingPrice.Value:N0}.";
+            $"{requestedQuality}: lowest {result.LowestPrice.Value:N0}; opposite-quality ignored {oppositeCount}.{ownSuffix} List at {this.Current.ListingPrice.Value:N0}.";
     }
 
     private void WaitForMarketResultsClose()
@@ -506,14 +638,17 @@ public sealed class SellAutomation
 
                 // As with Compare Prices, the confirm control may not be ready on
                 // the first frame after the results window closes. Keep retrying.
-                if (!this.retainerUi.SetPriceAndConfirm(this.Current.ListingPrice.Value))
+                if (!TrySubmitListing(this.Current.ListingPrice.Value))
                 {
                     if (this.ElapsedInState > UiTimeout)
-                        throw new TimeoutException("The listing Confirm button did not become clickable.");
+                        throw new TimeoutException("The listing Confirm event did not dispatch.");
 
                     this.Status = $"Waiting to confirm {this.Current.Candidate.ItemName} at {this.Current.ListingPrice.Value:N0} gil.";
                     return;
                 }
+
+                if (this.configuration.AutoConfirmExpectedDialogs)
+                    this.retainerUi.ArmExpectedYesNo("market listing");
 
                 this.Transition(AutomationState.WaitingForListingConfirmation, this.Current.Note);
                 return;
@@ -553,12 +688,32 @@ public sealed class SellAutomation
 
         if (!this.retainerUi.IsRetainerSellOpen && this.ElapsedInState > TimeSpan.FromMilliseconds(700))
         {
+            this.retainerUi.DisarmExpectedYesNo();
             this.Transition(AutomationState.WaitingForTransaction, "Listing submitted; verifying inventory change.");
             return;
         }
 
+        if (this.retainerUi.IsRetainerSellOpen &&
+            this.Current?.ListingPrice is uint listingPrice &&
+            this.listingConfirmAttempts < 3 &&
+            this.ElapsedInState > TimeSpan.FromSeconds(2.5) &&
+            DateTimeOffset.UtcNow - this.lastListingConfirmAttemptAt > TimeSpan.FromSeconds(2))
+        {
+            if (TrySubmitListing(listingPrice))
+            {
+                if (this.configuration.AutoConfirmExpectedDialogs)
+                    this.retainerUi.ArmExpectedYesNo("market listing retry");
+
+                this.Status = $"Retrying listing confirmation ({this.listingConfirmAttempts}/3).";
+                RecordActivity(this.Status, AutomationActivityKind.Warning);
+            }
+        }
+
         if (this.ElapsedInState > UiTimeout)
+        {
+            this.retainerUi.DisarmExpectedYesNo();
             throw new TimeoutException("The listing confirmation did not complete.");
+        }
     }
 
     private void WaitToVendor()
@@ -577,8 +732,15 @@ public sealed class SellAutomation
             throw new InvalidOperationException("The inventory slot changed before Have Retainer Sell Items.");
 
         this.Current.Candidate = live;
-        if (!this.retainerUi.SellToRetainer(live.InventoryType, live.Slot))
+
+        if (this.configuration.AutoConfirmExpectedDialogs)
+            this.retainerUi.ArmExpectedYesNo("Have Retainer Sell Items");
+
+        if (!TrySubmitVendorSale(live))
+        {
+            this.retainerUi.DisarmExpectedYesNo();
             throw new InvalidOperationException("Could not invoke Have Retainer Sell Items.");
+        }
 
         this.Transition(AutomationState.WaitingForVendorConfirmation, "Waiting for retainer-sale confirmation.");
     }
@@ -602,12 +764,32 @@ public sealed class SellAutomation
 
         if (CurrentInventoryChanged())
         {
+            this.retainerUi.DisarmExpectedYesNo();
             CompleteCurrentTransaction();
             return;
         }
 
+        if (this.Current is not null &&
+            this.vendorAttempts < 3 &&
+            this.ElapsedInState > TimeSpan.FromSeconds(2.5) &&
+            DateTimeOffset.UtcNow - this.lastVendorAttemptAt > TimeSpan.FromSeconds(2) &&
+            this.scanner.TryValidate(this.configuration, this.Current.Candidate, out var retryLive))
+        {
+            if (this.configuration.AutoConfirmExpectedDialogs)
+                this.retainerUi.ArmExpectedYesNo("Have Retainer Sell Items retry");
+
+            if (TrySubmitVendorSale(retryLive))
+            {
+                this.Status = $"Retrying retainer-sale confirmation ({this.vendorAttempts}/3).";
+                RecordActivity(this.Status, AutomationActivityKind.Warning);
+            }
+        }
+
         if (this.ElapsedInState > UiTimeout)
+        {
+            this.retainerUi.DisarmExpectedYesNo();
             throw new TimeoutException("The retainer-sale confirmation did not complete.");
+        }
     }
 
     private void WaitForTransaction()
@@ -620,12 +802,16 @@ public sealed class SellAutomation
 
         if (CurrentInventoryChanged())
         {
+            this.retainerUi.DisarmExpectedYesNo();
             CompleteCurrentTransaction();
             return;
         }
 
         if (this.ElapsedInState > UiTimeout)
+        {
+            this.retainerUi.DisarmExpectedYesNo();
             throw new TimeoutException("The game did not confirm an inventory change after the transaction.");
+        }
     }
 
     private void WaitForUiClose()
@@ -676,6 +862,8 @@ public sealed class SellAutomation
     private void CloseCurrentRetainer()
     {
         this.marketPrices.Cancel();
+        this.retainerUi.DisarmComparePrices();
+        this.retainerUi.DisarmExpectedYesNo();
         this.retainerUi.CloseMarketResults();
         this.retainerUi.CancelSellWindow();
 
@@ -794,9 +982,14 @@ public sealed class SellAutomation
     private void CompleteSession(string reason)
     {
         this.marketPrices.Cancel();
+        this.retainerUi.DisarmComparePrices();
+        this.retainerUi.DisarmExpectedYesNo();
         this.State = AutomationState.Completed;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
         var remaining = this.Queue.Count(entry => entry.State == QueueEntryState.Pending);
         this.Status = remaining > 0 ? $"{reason} {remaining} entries remain." : reason;
+        RecordActivity(this.Status, AutomationActivityKind.Success);
         this.chat.Print($"[Sell Everything] {this.Status}");
     }
 
@@ -804,6 +997,8 @@ public sealed class SellAutomation
     {
         this.log.Error(exception, "Sell Everything automation failed in {State}.", this.State);
         this.marketPrices.Cancel();
+        this.retainerUi.DisarmComparePrices();
+        this.retainerUi.DisarmExpectedYesNo();
 
         if (this.Current is not null)
         {
@@ -817,6 +1012,10 @@ public sealed class SellAutomation
         }
 
         this.State = AutomationState.Faulted;
+        this.stateStartedAt = DateTimeOffset.UtcNow;
+        this.stepTimer.Restart();
+        this.LastFault = exception.Message;
+        RecordActivity(this.Status, AutomationActivityKind.Error);
         this.chat.PrintError($"[Sell Everything] {this.Status}");
     }
 
@@ -826,6 +1025,34 @@ public sealed class SellAutomation
         this.Status = status;
         this.stateStartedAt = DateTimeOffset.UtcNow;
         this.stepTimer.Restart();
+        RecordActivity(status, state == AutomationState.Completed ? AutomationActivityKind.Success : AutomationActivityKind.Info);
+    }
+
+    private bool TrySubmitListing(uint price)
+    {
+        if (!this.retainerUi.SetPriceAndConfirm(price))
+            return false;
+
+        this.lastListingConfirmAttemptAt = DateTimeOffset.UtcNow;
+        this.listingConfirmAttempts++;
+        return true;
+    }
+
+    private bool TrySubmitVendorSale(SellCandidate candidate)
+    {
+        if (!this.retainerUi.SellToRetainer(candidate.InventoryType, candidate.Slot))
+            return false;
+
+        this.lastVendorAttemptAt = DateTimeOffset.UtcNow;
+        this.vendorAttempts++;
+        return true;
+    }
+
+    private void RecordActivity(string message, AutomationActivityKind kind)
+    {
+        this.activity.Insert(0, new AutomationActivity(DateTimeOffset.UtcNow, this.State, message, kind));
+        if (this.activity.Count > 80)
+            this.activity.RemoveRange(80, this.activity.Count - 80);
     }
 
     private TimeSpan ElapsedInState => DateTimeOffset.UtcNow - this.stateStartedAt;
@@ -860,4 +1087,19 @@ public enum AutomationState
     Paused,
     Completed,
     Faulted,
+}
+
+
+public sealed record AutomationActivity(
+    DateTimeOffset Timestamp,
+    AutomationState State,
+    string Message,
+    AutomationActivityKind Kind);
+
+public enum AutomationActivityKind
+{
+    Info,
+    Success,
+    Warning,
+    Error,
 }

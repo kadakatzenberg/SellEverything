@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.0.0
+
+- Rebuilt the main window as a modern tabbed dashboard with Overview, Queue, Protected Items, and Settings surfaces.
+- Added prominent run controls, live-mode messaging, step progress, current-item details, status-colored metrics, and recent activity history.
+- Added queue search and state filters with a compact, resizable table.
+- Reworked protected-item management with quality scopes, editable keep values, duplicate detection, and a clearer add-rule flow.
+- Reorganized settings into Pricing, Automation, and Safety tabs with contextual descriptions.
+- Added bounded retries for Compare Prices, market-list confirmation, and Have Retainer Sell Items confirmation.
+- Added an eight-second expiry for armed SelectYesno confirmations so a delayed unrelated dialog is not accepted.
+- Accepts a valid empty market packet after ItemSearchResult setup as a no-listings result instead of waiting for the full timeout.
+- Added activity history, run progress, elapsed-step display, persistent fault details, and a Retry Failed action.
+- Completed iterative functionality, safety, user-interface, and static-package review passes documented in `RALPH_REVIEW.md`.
+
+## 0.3.1.0
+
+- Added Penny Pincher's request-gating pattern: market packets are accepted only after `ItemSearchResult` reaches `PostSetup`.
+- Rejects a repeated completed market request ID to avoid reusing the previous response after a temporary search error.
+- Detects HQ directly from the `RetainerSell` item-name marker and blocks Compare Prices when the UI quality disagrees with the inventory stack.
+- Verifies that `ItemOrderModule.ActiveRetainerId` is nonzero before dispatching Compare Prices.
+- Ignores listings owned by the player's retainers by default, with an opt-in setting to undercut them.
+- Added Penny Pincher attribution and implementation notes.
+
+## 0.3.0.0
+
+- Refactored market UI interaction around Dalamud addon lifecycle events.
+- Arms Compare Prices before RetainerSell opens and dispatches it at PostSetup.
+- Begins market response collection before the compare request is sent.
+- Closes ItemSearchResult through its native window-component event.
+- Sets the RetainerSell numeric price directly and submits with event parameter 21.
+- Pumps expected SelectYesno confirmation every framework frame instead of waiting for the configured action delay.
+- Preserves exact item-ID and HQ/NQ filtering in the market response collector.
+- Added Marketbuddy attribution and third-party notice.
+
 ## 0.2.0.4
 
 - Use the RetainerSell addon's native Change event for Compare Prices.
@@ -11,8 +44,6 @@
 ## 0.2.0.3
 
 - Restores the nullable market-price fix that was accidentally omitted from 0.2.0.2.
-
-# Changelog
 
 ## 0.2.0.2
 

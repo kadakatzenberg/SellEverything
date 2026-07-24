@@ -59,6 +59,8 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     public Configuration Configuration { get; }
+    internal bool IsAutomationRunning => this.automation.IsRunning;
+    internal bool AreSettingsLocked => this.automation.LocksConfiguration;
 
     public void Dispose()
     {

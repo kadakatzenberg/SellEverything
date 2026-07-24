@@ -6,6 +6,9 @@
 - Sorting, searching, and filtering affect only the on-screen view and never change the order the automation processes entries.
 - Reworks the queue rows with clearer decision labels, friendlier state names, partial-stack sell/keep tooltips, and muted empty-note markers.
 - Adds empty-state messages to the queue and activity views when there is nothing to show yet.
+- Redesigns the main window around a left navigation rail (Overview, Queue, Protected, Settings) with a live queue count, replacing the top tab bar.
+- Adds a hero header band with an accent spine and status pills for automation state, live/dry-run mode, configuration lock, and fault conditions.
+- Adds accent-spined section titles, a reusable pill component, and metric tiles with colored top accents for a cleaner visual hierarchy.
 - Refreshes the overall theme with rounded panels, accent-tinted tables and headers, tighter spacing, and a color-coded live/dry-run indicator.
 
 ## 0.4.1.0

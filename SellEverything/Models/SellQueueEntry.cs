@@ -9,6 +9,7 @@ public sealed class SellQueueEntry
     public uint? ListingPrice { get; set; }
     public int HqListingsSeen { get; set; }
     public int NqListingsSeen { get; set; }
+    public int OwnListingsIgnored { get; set; }
     public int? MarketRequestId { get; set; }
     public string Note { get; set; } = string.Empty;
 }

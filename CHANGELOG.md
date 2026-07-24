@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1.0
+
+- Allocates protected keep quantities globally across matching stacks of the same item and quality instead of preserving the full keep amount in every stack.
+- Carries source quantity, sell quantity, and protected quantity independently through validation, listing, and queue display.
+- Skips low-price retainer vending for partial stacks so protected remainder cannot be sold accidentally.
+- Rebuilds stale queues when pricing, safety, retainer, or protected-item settings change after scanning.
+- Locks mutable settings and protected-item rules while a run is active or paused.
+- Requires an active retainer context before advancing into item automation.
+- Waits for RetainerSell, ItemSearchResult, and SelectYesno to close before re-scanning after a transaction.
+- Pauses immediately when a manual transaction confirmation is required, including during transaction verification.
+- Detects inventory change before retrying a listing or retainer-sale confirmation to reduce duplicate-action risk.
+- Restores interrupted nonterminal entries to Pending on Stop or when moving to another retainer.
+- Clears stale per-entry market data before retry and closes leftover market windows before resetting failed entries.
+- Avoids invoking the active-retainer close path when a retainer failed before an active context was established.
+- Suppresses repeated searches after item-wide terminal decisions, while scoping unsafe partial-stack skips to the exact inventory stack so later unprotected stacks remain eligible.
+- Completed repeated state-flow, quantity-safety, recovery, interface, and static-validation passes documented in `RALPH_REVIEW.md`.
+
 ## 0.4.0.0
 
 - Rebuilt the main window as a modern tabbed dashboard with Overview, Queue, Protected Items, and Settings surfaces.

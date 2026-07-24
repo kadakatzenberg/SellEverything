@@ -24,9 +24,11 @@ public sealed class MainWindow : Window
     {
         this.plugin = plugin;
         this.automation = automation;
+        this.Size = new Vector2(940, 680);
+        this.SizeCondition = ImGuiCond.FirstUseEver;
         this.SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(880, 620),
+            MinimumSize = new Vector2(760, 540),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue),
         };
     }
@@ -110,7 +112,12 @@ public sealed class MainWindow : Window
     {
         var buttonHeight = 34f;
 
-        if (this.automation.State == AutomationState.Paused)
+        if (this.automation.NeedsReview)
+        {
+            if (UiTheme.PrimaryButton("Approve queue", new Vector2(140, buttonHeight)))
+                this.automation.ApproveQueue();
+        }
+        else if (this.automation.State == AutomationState.Paused)
         {
             if (UiTheme.PrimaryButton("Resume", new Vector2(120, buttonHeight)))
                 this.automation.Resume();
@@ -127,8 +134,10 @@ public sealed class MainWindow : Window
         }
 
         ImGui.SameLine();
+        ImGui.BeginDisabled(this.automation.LocksConfiguration);
         if (UiTheme.QuietButton("Scan inventory", new Vector2(135, buttonHeight)))
             this.automation.BuildQueue();
+        ImGui.EndDisabled();
 
         if (this.automation.State == AutomationState.Faulted)
         {
@@ -146,15 +155,25 @@ public sealed class MainWindow : Window
 
         ImGui.SameLine();
         var dryRun = this.plugin.Configuration.DryRun;
+        ImGui.BeginDisabled(this.automation.LocksConfiguration);
         if (ImGui.Checkbox("Dry run", ref dryRun))
         {
             this.plugin.Configuration.DryRun = dryRun;
             this.plugin.Configuration.Save();
         }
+        ImGui.EndDisabled();
     }
 
     private void DrawModeNotice()
     {
+        if (this.automation.NeedsReview)
+        {
+            ImGui.TextColored(
+                UiTheme.Warning,
+                "Queue review is required. Inspect the Queue tab, then approve it before starting.");
+            return;
+        }
+
         if (this.plugin.Configuration.DryRun)
         {
             ImGui.TextColored(
@@ -195,7 +214,11 @@ public sealed class MainWindow : Window
 
     private void DrawMetrics()
     {
-        var pending = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Pending);
+        var pending = this.automation.Queue.Count(entry => entry.State is QueueEntryState.Pending
+            or QueueEntryState.OpeningSellWindow
+            or QueueEntryState.RequestingPrice
+            or QueueEntryState.PriceReceived
+            or QueueEntryState.Executing);
         var completed = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Completed);
         var skipped = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Skipped);
         var failed = this.automation.Queue.Count(entry => entry.State == QueueEntryState.Failed);
@@ -214,11 +237,14 @@ public sealed class MainWindow : Window
     private static void DrawMetricCell(string label, int value, Vector4 color)
     {
         ImGui.TableNextColumn();
-        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(color.X, color.Y, color.Z, 0.28f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(color.X, color.Y, color.Z, 0.36f));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(color.X, color.Y, color.Z, 0.36f));
-        _ = ImGui.Button($"{value:N0}\n{label}##Metric{label}", new Vector2(-1, 58));
-        ImGui.PopStyleColor(3);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(color.X, color.Y, color.Z, 0.16f));
+        if (ImGui.BeginChild($"Metric{label}", new Vector2(0, 58), true, ImGuiWindowFlags.NoScrollbar))
+        {
+            ImGui.TextColored(color, value.ToString("N0"));
+            UiTheme.MutedText(label);
+        }
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
     }
 
     private void DrawCurrentItem()
@@ -236,7 +262,10 @@ public sealed class MainWindow : Window
             return;
 
         DrawKeyValue("Item", current.Candidate.ItemName);
-        DrawKeyValue("Quality and quantity", $"{current.Candidate.QualityLabel}  |  {current.Candidate.Quantity:N0}");
+        var quantityText = current.Candidate.IsPartialStack
+            ? $"{current.Candidate.QualityLabel}  |  sell {current.Candidate.SellQuantity:N0} of {current.Candidate.Quantity:N0}  |  keep {current.Candidate.ProtectedQuantity:N0}"
+            : $"{current.Candidate.QualityLabel}  |  {current.Candidate.Quantity:N0}";
+        DrawKeyValue("Quality and quantity", quantityText);
         DrawKeyValue("Market", current.LowestMatchingPrice is uint lowest ? $"Lowest matching {lowest:N0} gil" : "Waiting for a matching price");
         DrawKeyValue("Decision", current.Action == SellAction.Unknown ? "Pending" : current.Action.ToString());
         DrawKeyValue("Note", string.IsNullOrWhiteSpace(current.Note) ? "No note" : current.Note);
@@ -329,7 +358,9 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextColored(entry.Candidate.IsHq ? UiTheme.Warning : UiTheme.Muted, entry.Candidate.QualityLabel);
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(entry.Candidate.Quantity.ToString("N0"));
+            ImGui.TextUnformatted(entry.Candidate.IsPartialStack
+                ? $"{entry.Candidate.SellQuantity:N0}/{entry.Candidate.Quantity:N0}"
+                : entry.Candidate.Quantity.ToString("N0"));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"NQ {entry.NqListingsSeen} / HQ {entry.HqListingsSeen}");
             ImGui.TableNextColumn();
@@ -351,6 +382,11 @@ public sealed class MainWindow : Window
             "Protected items",
             "Rules are matched by item ID and quality before an item enters the queue.");
 
+        if (this.automation.LocksConfiguration)
+            ImGui.TextColored(UiTheme.Warning, "Protected-item rules are locked while a run is active or paused.");
+        UiTheme.MutedText("Partial keep quantities are applied to market listings. Low-price retainer vending skips partial stacks to preserve the protected remainder.");
+
+        ImGui.BeginDisabled(this.automation.LocksConfiguration);
         ImGui.SetNextItemWidth(320);
         ImGui.InputTextWithHint("##ItemSearch", "Exact or partial item name", ref this.itemSearch, 128);
 
@@ -376,66 +412,66 @@ public sealed class MainWindow : Window
 
         ImGui.Spacing();
 
-        if (!ImGui.BeginTable(
+        if (ImGui.BeginTable(
                 "ProtectedRules",
                 5,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.SizingStretchProp,
                 new Vector2(0, -1)))
         {
-            return;
-        }
+            ImGui.TableSetupColumn("Item");
+            ImGui.TableSetupColumn("Item ID");
+            ImGui.TableSetupColumn("Quality");
+            ImGui.TableSetupColumn("Keep");
+            ImGui.TableSetupColumn("Action");
+            ImGui.TableHeadersRow();
 
-        ImGui.TableSetupColumn("Item");
-        ImGui.TableSetupColumn("Item ID");
-        ImGui.TableSetupColumn("Quality");
-        ImGui.TableSetupColumn("Keep");
-        ImGui.TableSetupColumn("Action");
-        ImGui.TableHeadersRow();
-
-        for (var i = 0; i < this.plugin.Configuration.ProtectedItems.Count; i++)
-        {
-            var rule = this.plugin.Configuration.ProtectedItems[i];
-            ImGui.PushID(i);
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(rule.DisplayName);
-            ImGui.TableNextColumn();
-            UiTheme.MutedText(rule.ItemId.ToString());
-            ImGui.TableNextColumn();
-
-            var qualityIndex = (int)rule.Quality;
-            ImGui.SetNextItemWidth(-1);
-            if (DrawQualityCombo("##RuleQuality", ref qualityIndex))
+            for (var i = 0; i < this.plugin.Configuration.ProtectedItems.Count; i++)
             {
-                rule.Quality = (QualityScope)Math.Clamp(qualityIndex, 0, 2);
-                this.plugin.Configuration.Save();
-            }
+                var rule = this.plugin.Configuration.ProtectedItems[i];
+                ImGui.PushID(i);
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(rule.DisplayName);
+                ImGui.TableNextColumn();
+                UiTheme.MutedText(rule.ItemId.ToString());
+                ImGui.TableNextColumn();
 
-            ImGui.TableNextColumn();
-            var keep = rule.KeepQuantity == int.MaxValue ? -1 : rule.KeepQuantity;
-            ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputInt("##RuleKeep", ref keep))
-            {
-                rule.KeepQuantity = keep < 0 ? int.MaxValue : keep;
-                this.plugin.Configuration.Save();
-            }
+                var qualityIndex = (int)rule.Quality;
+                ImGui.SetNextItemWidth(-1);
+                if (DrawQualityCombo("##RuleQuality", ref qualityIndex))
+                {
+                    rule.Quality = (QualityScope)Math.Clamp(qualityIndex, 0, 2);
+                    this.plugin.Configuration.Save();
+                }
 
-            if (ImGui.IsItemHovered())
-                ImGui.SetTooltip("Use -1 to protect the entire stack.");
+                ImGui.TableNextColumn();
+                var keep = rule.KeepQuantity == int.MaxValue ? -1 : rule.KeepQuantity;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputInt("##RuleKeep", ref keep))
+                {
+                    rule.KeepQuantity = keep < 0 ? int.MaxValue : keep;
+                    this.plugin.Configuration.Save();
+                }
 
-            ImGui.TableNextColumn();
-            if (UiTheme.DangerButton("Remove", new Vector2(-1, 0)))
-            {
-                this.plugin.Configuration.ProtectedItems.RemoveAt(i);
-                this.plugin.Configuration.Save();
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Use -1 to protect the entire stack.");
+
+                ImGui.TableNextColumn();
+                if (UiTheme.DangerButton("Remove", new Vector2(-1, 0)))
+                {
+                    this.plugin.Configuration.ProtectedItems.RemoveAt(i);
+                    this.plugin.Configuration.Save();
+                    ImGui.PopID();
+                    break;
+                }
+
                 ImGui.PopID();
-                break;
             }
 
-            ImGui.PopID();
+            ImGui.EndTable();
         }
 
-        ImGui.EndTable();
+        ImGui.EndDisabled();
     }
 
     private void DrawSettingsSummary()
@@ -453,6 +489,7 @@ public sealed class MainWindow : Window
             DrawKeyValue("Action delay", $"{config.ActionDelayMilliseconds:N0} ms");
             DrawKeyValue("Market timeout", $"{config.MarketTimeoutMilliseconds:N0} ms");
             DrawKeyValue("Own-retainer listings", config.UndercutOwnRetainers ? "Included" : "Ignored");
+            DrawKeyValue("Queue review", config.RequireReviewBeforeRun ? "Required" : "Not required");
             ImGui.EndTable();
         }
 
@@ -471,7 +508,11 @@ public sealed class MainWindow : Window
     {
         var statusMatches = this.queueFilter switch
         {
-            1 => entry.State == QueueEntryState.Pending,
+            1 => entry.State is QueueEntryState.Pending
+                or QueueEntryState.OpeningSellWindow
+                or QueueEntryState.RequestingPrice
+                or QueueEntryState.PriceReceived
+                or QueueEntryState.Executing,
             2 => entry.State == QueueEntryState.Completed,
             3 => entry.State == QueueEntryState.Skipped,
             4 => entry.State == QueueEntryState.Failed,
@@ -536,9 +577,15 @@ public sealed class MainWindow : Window
             return;
         }
 
-        if (this.plugin.Configuration.ProtectedItems.Any(rule => rule.ItemId == item.RowId))
+        var newQuality = (QualityScope)Math.Clamp(this.protectedQualityIndex, 0, 2);
+        var overlaps = this.plugin.Configuration.ProtectedItems.Any(rule =>
+            rule.ItemId == item.RowId &&
+            (rule.Quality == QualityScope.Both ||
+             newQuality == QualityScope.Both ||
+             rule.Quality == newQuality));
+        if (overlaps)
         {
-            Plugin.ChatGui.Print($"[Sell Everything] {item.Name} already has a protection rule.");
+            Plugin.ChatGui.Print($"[Sell Everything] {item.Name} already has an overlapping protection rule.");
             return;
         }
 
@@ -547,7 +594,7 @@ public sealed class MainWindow : Window
             ItemId = item.RowId,
             DisplayName = item.Name.ToString(),
             KeepQuantity = this.protectAll ? int.MaxValue : Math.Max(0, this.keepQuantity),
-            Quality = (QualityScope)Math.Clamp(this.protectedQualityIndex, 0, 2),
+            Quality = newQuality,
         });
         this.plugin.Configuration.Save();
         this.itemSearch = string.Empty;

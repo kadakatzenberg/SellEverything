@@ -8,10 +8,13 @@ public sealed record SellCandidate(
     uint ItemId,
     string ItemName,
     int Quantity,
+    int SellQuantity,
+    int ProtectedQuantity,
     bool IsHq,
     uint NpcSellPrice,
     bool CanBeHq,
     bool IsMarketable)
 {
     public string QualityLabel => this.IsHq ? "HQ" : "NQ";
+    public bool IsPartialStack => this.SellQuantity < this.Quantity;
 }

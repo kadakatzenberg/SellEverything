@@ -7,7 +7,7 @@ namespace SellEverything;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 5;
+    public int Version { get; set; } = 6;
 
     public uint MarketFloor { get; set; } = 100;
     public uint UndercutAmount { get; set; } = 1;

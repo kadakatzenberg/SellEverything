@@ -29,6 +29,10 @@ public sealed class ConfigWindow : Window
             UiTheme.MutedText("Pricing, automation timing, and safety behavior.");
             ImGui.Separator();
 
+            if (this.plugin.AreSettingsLocked)
+                ImGui.TextColored(UiTheme.Warning, "Settings are locked while a run is active or paused.");
+
+            ImGui.BeginDisabled(this.plugin.AreSettingsLocked);
             if (ImGui.BeginTabBar("SellEverythingSettingsTabs"))
             {
                 if (ImGui.BeginTabItem("Pricing"))
@@ -51,6 +55,7 @@ public sealed class ConfigWindow : Window
 
                 ImGui.EndTabBar();
             }
+            ImGui.EndDisabled();
         }
         finally
         {
@@ -162,9 +167,15 @@ public sealed class ConfigWindow : Window
 
         DrawCheckbox(
             "Auto-confirm expected sale dialogs",
-            "Only arms confirmation immediately after a listing or retainer-sale action.",
+            "Only accepts a non-empty dialog while the matching transaction state is active.",
             config.AutoConfirmExpectedDialogs,
             value => config.AutoConfirmExpectedDialogs = value);
+
+        DrawCheckbox(
+            "Require queue approval",
+            "After each scan, require an explicit approval before live actions can begin.",
+            config.RequireReviewBeforeRun,
+            value => config.RequireReviewBeforeRun = value);
 
     }
 

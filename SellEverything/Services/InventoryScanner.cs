@@ -17,10 +17,74 @@ public sealed unsafe class InventoryScanner(IDataManager dataManager, IPluginLog
 
     public List<SellCandidate> Scan(Configuration configuration)
     {
-        var result = new List<SellCandidate>();
+        var result = ScanInternal(configuration);
+        log.Information("Sell Everything scanned {Count} eligible stacks.", result.Count);
+        return result;
+    }
+
+    public bool TryValidate(Configuration configuration, SellCandidate expected, out SellCandidate live)
+    {
+        live = ScanInternal(configuration)
+            .FirstOrDefault(candidate =>
+                candidate.InventoryType == expected.InventoryType &&
+                candidate.Slot == expected.Slot &&
+                candidate.ItemId == expected.ItemId &&
+                candidate.IsHq == expected.IsHq)!;
+
+        return live is not null;
+    }
+
+    private List<SellCandidate> ScanInternal(Configuration configuration)
+    {
+        var rawStacks = ReadRawStacks(configuration);
+        var result = new List<SellCandidate>(rawStacks.Count);
+        var remainingProtection = new Dictionary<ItemQualityKey, int>();
+
+        foreach (var stack in rawStacks)
+        {
+            var key = new ItemQualityKey(stack.ItemId, stack.IsHq);
+            if (!remainingProtection.TryGetValue(key, out var keepRemaining))
+            {
+                keepRemaining = GetProtectedQuantity(configuration, stack.ItemId, stack.IsHq);
+                remainingProtection[key] = keepRemaining;
+            }
+
+            var protectedForStack = keepRemaining == int.MaxValue
+                ? stack.Quantity
+                : Math.Min(stack.Quantity, Math.Max(0, keepRemaining));
+
+            if (keepRemaining != int.MaxValue)
+                remainingProtection[key] = Math.Max(0, keepRemaining - protectedForStack);
+
+            var sellQuantity = stack.Quantity - protectedForStack;
+            if (sellQuantity <= 0)
+                continue;
+
+            result.Add(new SellCandidate(
+                stack.InventoryType,
+                stack.Slot,
+                stack.ItemId,
+                stack.ItemName,
+                stack.Quantity,
+                sellQuantity,
+                protectedForStack,
+                stack.IsHq,
+                stack.NpcSellPrice,
+                stack.CanBeHq,
+                stack.IsMarketable));
+        }
+
+        return result;
+    }
+
+    private List<RawStack> ReadRawStacks(Configuration configuration)
+    {
+        var result = new List<RawStack>();
         var manager = InventoryManager.Instance();
         if (manager == null)
             return result;
+
+        var itemSheet = dataManager.GetExcelSheet<Item>();
 
         foreach (var inventoryType in PlayerInventories)
         {
@@ -30,82 +94,46 @@ public sealed unsafe class InventoryScanner(IDataManager dataManager, IPluginLog
 
             for (var slotIndex = 0; slotIndex < container->Size; slotIndex++)
             {
-                if (TryReadCandidate(configuration, inventoryType, (uint)slotIndex, out var candidate))
-                    result.Add(candidate);
+                var inventoryItem = container->GetInventorySlot(slotIndex);
+                if (inventoryItem == null || inventoryItem->ItemId == 0 || inventoryItem->Quantity == 0)
+                    continue;
+
+                if (!itemSheet.TryGetRow(inventoryItem->ItemId, out var itemRow))
+                    continue;
+
+                if (configuration.SkipCollectables && inventoryItem->IsCollectable())
+                    continue;
+
+                if (configuration.SkipMateriaAttached && inventoryItem->GetMateriaCount() > 0)
+                    continue;
+
+                if (configuration.SkipGear && itemRow.EquipSlotCategory.RowId != 0)
+                    continue;
+
+                var marketable = !itemRow.IsUntradable && itemRow.ItemSearchCategory.RowId != 0;
+                if (!marketable)
+                    continue;
+
+                result.Add(new RawStack(
+                    inventoryType,
+                    (uint)slotIndex,
+                    inventoryItem->ItemId,
+                    itemRow.Name.ToString(),
+                    checked((int)inventoryItem->Quantity),
+                    inventoryItem->IsHighQuality(),
+                    itemRow.PriceLow,
+                    itemRow.CanBeHq,
+                    marketable));
             }
         }
 
-        log.Information("Sell Everything scanned {Count} eligible stacks.", result.Count);
         return result;
     }
 
-    public bool TryValidate(Configuration configuration, SellCandidate expected, out SellCandidate live)
+    private static int GetProtectedQuantity(Configuration configuration, uint itemId, bool isHq)
     {
-        if (!TryReadCandidate(configuration, expected.InventoryType, expected.Slot, out live))
-            return false;
+        var keep = 0;
 
-        return live.ItemId == expected.ItemId && live.IsHq == expected.IsHq;
-    }
-
-    private bool TryReadCandidate(
-        Configuration configuration,
-        InventoryType inventoryType,
-        uint slot,
-        out SellCandidate candidate)
-    {
-        candidate = null!;
-
-        var manager = InventoryManager.Instance();
-        if (manager == null)
-            return false;
-
-        var container = manager->GetInventoryContainer(inventoryType);
-        if (container == null || !container->IsLoaded || slot >= (uint)container->Size)
-            return false;
-
-        var inventoryItem = container->GetInventorySlot((int)slot);
-        if (inventoryItem == null || inventoryItem->ItemId == 0 || inventoryItem->Quantity <= 0)
-            return false;
-
-        var itemSheet = dataManager.GetExcelSheet<Item>();
-        if (!itemSheet.TryGetRow(inventoryItem->ItemId, out var itemRow))
-            return false;
-
-        var isHq = inventoryItem->IsHighQuality();
-        var quantity = inventoryItem->Quantity;
-
-        if (IsProtected(configuration, inventoryItem->ItemId, isHq, quantity))
-            return false;
-
-        if (configuration.SkipCollectables && inventoryItem->IsCollectable())
-            return false;
-
-        if (configuration.SkipMateriaAttached && inventoryItem->GetMateriaCount() > 0)
-            return false;
-
-        if (configuration.SkipGear && itemRow.EquipSlotCategory.RowId != 0)
-            return false;
-
-        var marketable = !itemRow.IsUntradable && itemRow.ItemSearchCategory.RowId != 0;
-        if (!marketable)
-            return false;
-
-        candidate = new SellCandidate(
-            inventoryType,
-            slot,
-            inventoryItem->ItemId,
-            itemRow.Name.ToString(),
-            quantity,
-            isHq,
-            itemRow.PriceLow,
-            itemRow.CanBeHq,
-            marketable);
-
-        return true;
-    }
-
-    private static bool IsProtected(Configuration configuration, uint itemId, bool isHq, int quantity)
-    {
         foreach (var rule in configuration.ProtectedItems)
         {
             if (rule.ItemId != itemId)
@@ -122,10 +150,25 @@ public sealed unsafe class InventoryScanner(IDataManager dataManager, IPluginLog
             if (!qualityMatches)
                 continue;
 
-            if (rule.KeepQuantity == int.MaxValue || quantity <= rule.KeepQuantity)
-                return true;
+            if (rule.KeepQuantity == int.MaxValue)
+                return int.MaxValue;
+
+            keep = Math.Max(keep, Math.Max(0, rule.KeepQuantity));
         }
 
-        return false;
+        return keep;
     }
+
+    private readonly record struct ItemQualityKey(uint ItemId, bool IsHq);
+
+    private sealed record RawStack(
+        InventoryType InventoryType,
+        uint Slot,
+        uint ItemId,
+        string ItemName,
+        int Quantity,
+        bool IsHq,
+        uint NpcSellPrice,
+        bool CanBeHq,
+        bool IsMarketable);
 }

@@ -414,7 +414,7 @@ public sealed unsafe class RetainerUi : IDisposable
         }
 
         if (this.comparePricesArmed)
-            _ = this.TryDispatchComparePrices();
+            this.TryDispatchComparePrices();
     }
 
     private void OnRetainerSellFinalize(AddonEvent _, AddonArgs args)

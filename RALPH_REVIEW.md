@@ -22,6 +22,27 @@ was not simulated.
 - Reworked section titles with an accent spine and gave metric tiles a colored
   top accent for stronger hierarchy.
 
+## Automation loop A: Multi-retainer context handoff
+
+- Traced the retainer-to-retainer transition and found that item automation
+  resumed as soon as any retainer context was active (ActiveRetainerId != 0).
+- The previous retainer's id can linger after its window closes, so the machine
+  could act on a stale context and open the wrong retainer window and stall.
+- Added a changed-id gate: the next retainer's ready check requires the active
+  retainer id to differ from the retainer just left, captured when closing or
+  deferring a retainer.
+
+## Automation loop B: Latency of the state machine
+
+- Found that every state, including pure waits, was throttled by the configured
+  action delay, adding up to a full delay of dead time at each step.
+- Split states into action-dispatching (paced) and observing (per-frame) so the
+  machine advances the instant a window opens or closes or a market settles.
+- Confirmed retry-dispatching wait states keep their own time guards, so running
+  them every frame cannot spam game actions.
+- Lowered the default action delay and its floor now that waiting no longer
+  consumes the delay.
+
 ## Interface loop C: ImGui scope and font-safety review
 
 - Verified every BeginChild is paired with an unconditional EndChild and every

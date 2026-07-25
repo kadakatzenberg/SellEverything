@@ -23,6 +23,7 @@ public sealed class SellAutomation
     private int currentIndex;
     private int currentRetainerIndex;
     private int sessionRetainerLimit;
+    private ulong lastProcessedRetainerId;
     private int listingConfirmAttempts;
     private int vendorAttempts;
     private AutomationState pausedFromState = AutomationState.Idle;
@@ -148,6 +149,7 @@ public sealed class SellAutomation
         }
 
         this.currentRetainerIndex = 0;
+        this.lastProcessedRetainerId = 0;
         this.listingConfirmAttempts = 0;
         this.vendorAttempts = 0;
         this.LastFault = string.Empty;
@@ -328,10 +330,17 @@ public sealed class SellAutomation
         if (!this.IsRunning)
             return;
 
-        if (this.stepTimer.ElapsedMilliseconds < Math.Clamp(this.configuration.ActionDelayMilliseconds, 300, 5000))
-            return;
+        // Only states that dispatch a game action are paced by the configured
+        // delay. Pure waiting states run every frame so the machine advances the
+        // instant a window opens or closes or market data settles, instead of
+        // idling for up to a full action delay at every step.
+        if (IsPacedState(this.State))
+        {
+            if (this.stepTimer.ElapsedMilliseconds < Math.Clamp(this.configuration.ActionDelayMilliseconds, 150, 5000))
+                return;
 
-        this.stepTimer.Restart();
+            this.stepTimer.Restart();
+        }
 
         try
         {
@@ -396,6 +405,18 @@ public sealed class SellAutomation
         }
     }
 
+    // States that send a game action (a click, callback, or window close) each
+    // time they run are paced by the configured action delay. Every other state
+    // only observes UI state and can run at full frame rate.
+    private static bool IsPacedState(AutomationState state)
+        => state is AutomationState.SelectingRetainer
+            or AutomationState.SelectingMarketMenu
+            or AutomationState.OpeningSellWindow
+            or AutomationState.ExecutingDecision
+            or AutomationState.WaitingToVendor
+            or AutomationState.RefreshingInventory
+            or AutomationState.ClosingRetainer;
+
     private void SelectRetainer()
     {
         if (!this.retainerUi.IsRetainerListOpen)
@@ -456,9 +477,13 @@ public sealed class SellAutomation
 
     private void WaitForRetainerReady()
     {
+        // Require the *newly selected* retainer's context, not merely any active
+        // context: after closing the previous retainer its id can briefly linger,
+        // and acting on it opens the wrong retainer window and stalls.
         if (!this.retainerUi.IsSelectStringOpen &&
             !this.retainerUi.IsRetainerListOpen &&
-            this.retainerUi.IsRetainerContextActive)
+            this.retainerUi.IsRetainerContextActive &&
+            this.retainerUi.CurrentRetainerId != this.lastProcessedRetainerId)
         {
             this.Transition(AutomationState.OpeningSellWindow, "Opening the first eligible item.");
             return;
@@ -1000,6 +1025,11 @@ public sealed class SellAutomation
 
     private void CloseCurrentRetainer()
     {
+        // Capture the retainer being closed so the next one's ready check waits
+        // for its own active context rather than this retainer's lingering id.
+        if (this.retainerUi.CurrentRetainerId != 0)
+            this.lastProcessedRetainerId = this.retainerUi.CurrentRetainerId;
+
         this.marketPrices.Cancel();
         this.retainerUi.DisarmComparePrices();
         this.retainerUi.DisarmExpectedYesNo();
@@ -1102,6 +1132,10 @@ public sealed class SellAutomation
     private void MoveToNextRetainer(string reason)
     {
         this.log.Information("Retainer {RetainerNumber}: {Reason}", this.CurrentRetainerNumber, reason);
+
+        // Remember which retainer we are leaving so the next retainer's ready
+        // check waits for a genuinely different active context.
+        this.lastProcessedRetainerId = this.retainerUi.CurrentRetainerId;
 
         if (this.Current is not null &&
             this.Current.State is not QueueEntryState.Completed

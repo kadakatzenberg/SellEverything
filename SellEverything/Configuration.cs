@@ -11,7 +11,7 @@ public sealed class Configuration : IPluginConfiguration
 
     public uint MarketFloor { get; set; } = 100;
     public uint UndercutAmount { get; set; } = 1;
-    public int ActionDelayMilliseconds { get; set; } = 900;
+    public int ActionDelayMilliseconds { get; set; } = 400;
     public int MarketTimeoutMilliseconds { get; set; } = 15000;
     public int UiTimeoutMilliseconds { get; set; } = 12000;
     public bool DryRun { get; set; } = true;

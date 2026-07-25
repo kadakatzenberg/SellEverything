@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.5.0
+
+- Fixes the inventory right-click entry never appearing on high-quality items. The game reports an inventory slot's item id with a quality offset applied (HQ +1,000,000, collectible +500,000), so HQ stacks were looked up as a nonexistent item row and silently skipped. The offset is now stripped before the lookup, matching how the scanner and the protected-items panel key an item.
+- Protecting or unprotecting from the right-click menu now correctly recognises an existing rule for a high-quality stack, so the entry reads "Unprotect item" instead of offering to add a duplicate.
+
 ## 0.4.4.0
 
 - Fixes the multi-retainer handoff: the next retainer's item automation now waits for that retainer's own active context (a changed active-retainer id) instead of the previous retainer's lingering context, which could open the wrong retainer window and stall.

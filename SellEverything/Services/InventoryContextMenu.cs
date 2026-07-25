@@ -33,7 +33,11 @@ public sealed class InventoryContextMenu : IDisposable
         if (args.Target is not MenuTargetInventory inventory || inventory.TargetItem is not { } target)
             return;
 
-        var itemId = target.ItemId;
+        // GameInventoryItem.ItemId carries the quality offset the game applies to
+        // inventory slots (HQ +1,000,000, collectible +500,000), while the scanner
+        // and the protected list are keyed on the plain Item row id. Strip it, or
+        // HQ stacks resolve to a nonexistent row and never get a menu entry.
+        var itemId = NormalizeItemId(target.ItemId);
         if (itemId == 0 || !TryResolveMarketableItem(itemId, out var itemName))
             return;
 
@@ -77,6 +81,19 @@ public sealed class InventoryContextMenu : IDisposable
         config.Save();
         Plugin.ChatGui.Print($"[Sell Everything] {itemName} is now protected and will never be sold.");
     }
+
+    /// <summary>
+    /// Converts an inventory slot's item id to the plain Item row id, dropping the
+    /// high-quality and collectible offsets. Event items have no market listing and
+    /// are reported as 0 so the caller skips them.
+    /// </summary>
+    private static uint NormalizeItemId(uint rawItemId) => rawItemId switch
+    {
+        >= 2_000_000 => 0,
+        >= 1_000_000 => rawItemId - 1_000_000,
+        >= 500_000 => rawItemId - 500_000,
+        _ => rawItemId,
+    };
 
     private static bool TryResolveMarketableItem(uint itemId, out string itemName)
     {

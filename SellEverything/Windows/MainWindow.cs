@@ -496,6 +496,7 @@ public sealed class MainWindow : Window
         if (this.automation.LocksConfiguration)
             ImGui.TextColored(UiTheme.Warning, "Protected-item rules are locked while a run is active or paused.");
         UiTheme.MutedText("Partial keep quantities are applied to market listings. Low-price retainer vending skips partial stacks to preserve the protected remainder.");
+        UiTheme.MutedText("Tip: right-click any marketable item in your inventory to protect or unprotect it instantly.");
 
         ImGui.BeginDisabled(this.automation.LocksConfiguration);
         ImGui.SetNextItemWidth(320);

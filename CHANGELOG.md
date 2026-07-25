@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.3.0
+
+- Adds an inventory right-click entry: "Sell Everything: Protect item" adds a marketable item to the protected list (never sold, whole stack, both qualities), and "Sell Everything: Unprotect item" removes it.
+- The entry appears only for marketable items and is disabled while a run is active or paused, matching the protected-items panel.
+- Prints a chat confirmation when an item is protected or unprotected.
+
 ## 0.4.2.0
 
 - Adds sortable queue columns: click any header (Item, Quality, Qty, Market, Decision, Price, State) to sort ascending or descending. The queue now defaults to alphabetical order by item name.

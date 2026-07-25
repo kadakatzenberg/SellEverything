@@ -98,6 +98,21 @@ public sealed unsafe class RetainerUi : IDisposable
         }
     }
 
+    /// <summary>
+    /// The id of the retainer whose inventory is currently the active context,
+    /// or 0 when no retainer context is active. Used to confirm that a newly
+    /// selected retainer's context is live before acting, rather than reacting
+    /// to the previous retainer's stale context.
+    /// </summary>
+    public ulong CurrentRetainerId
+    {
+        get
+        {
+            var module = ItemOrderModule.Instance();
+            return module == null ? 0 : module->ActiveRetainerId;
+        }
+    }
+
     public bool IsRetainerSellOpen
     {
         get

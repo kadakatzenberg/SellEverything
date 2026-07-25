@@ -20,12 +20,14 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
     [PluginService] internal static IMarketBoard MarketBoard { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
     private readonly WindowSystem windowSystem = new("SellEverything");
     private readonly MarketPriceCollector marketPrices;
     private readonly RetainerUi retainerUi;
     private readonly SellAutomation automation;
+    private readonly InventoryContextMenu inventoryContextMenu;
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
 
@@ -39,6 +41,7 @@ public sealed class Plugin : IDalamudPlugin
         this.retainerUi = new RetainerUi(GameGui, AddonLifecycle, Log);
         this.retainerUi.MarketResultsOpened += this.marketPrices.Activate;
         this.automation = new SellAutomation(this.Configuration, scanner, this.marketPrices, this.retainerUi, ChatGui, Log);
+        this.inventoryContextMenu = new InventoryContextMenu(this, ContextMenu);
 
         this.mainWindow = new MainWindow(this, this.automation);
         this.configWindow = new ConfigWindow(this);
@@ -69,6 +72,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= this.ToggleMainUi;
         PluginInterface.UiBuilder.OpenConfigUi -= this.ToggleConfigUi;
         CommandManager.RemoveHandler(CommandName);
+        this.inventoryContextMenu.Dispose();
         this.automation.Stop();
         this.retainerUi.MarketResultsOpened -= this.marketPrices.Activate;
         this.retainerUi.Dispose();

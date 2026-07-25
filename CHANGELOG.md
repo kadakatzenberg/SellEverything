@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.4.0
+
+- Fixes the multi-retainer handoff: the next retainer's item automation now waits for that retainer's own active context (a changed active-retainer id) instead of the previous retainer's lingering context, which could open the wrong retainer window and stall.
+- Makes the run much faster: waiting steps now advance every frame the instant a window opens or closes or market data settles, and only steps that dispatch a game action are paced by the action delay (previously every step waited a full action delay).
+- Lowers the default action delay to 400 ms and the minimum to 150 ms, since waiting no longer consumes that delay.
+
 ## 0.4.3.0
 
 - Adds an inventory right-click entry: "Sell Everything: Protect item" adds a marketable item to the protected list (never sold, whole stack, both qualities), and "Sell Everything: Unprotect item" removes it.

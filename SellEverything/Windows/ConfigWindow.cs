@@ -108,10 +108,10 @@ public sealed class ConfigWindow : Window
             var delay = config.ActionDelayMilliseconds;
             DrawIntRow(
                 "Action delay",
-                "Delay between ordinary automation steps in milliseconds.",
+                "Minimum spacing between dispatched game actions in milliseconds. Waiting steps no longer use this delay, so lower values are safe.",
                 "##ActionDelay",
                 ref delay,
-                300,
+                150,
                 5000,
                 value => config.ActionDelayMilliseconds = value);
 
